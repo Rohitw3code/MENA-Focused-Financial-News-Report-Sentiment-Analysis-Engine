@@ -1,212 +1,152 @@
 # Import necessary libraries
-import requests
-from bs4 import BeautifulSoup
 import sqlite3
-import csv
+import pandas as pd
+import os
 import re
-import time
 from transformers import pipeline, logging
 from langdetect import detect, LangDetectException
 
 # Suppress verbose logging from the transformers library for a cleaner output
 logging.set_verbosity_error()
 
-# --- AI Core: Sentiment Analysis Setup ---
-def initialize_sentiment_models():
+# --- AI Core: Model Initialization ---
+def initialize_ai_models():
     """
-    Loads and initializes the pre-trained sentiment analysis models from Hugging Face.
+    Loads and initializes the pre-trained AI models from Hugging Face.
     
     Returns:
-        tuple: A tuple containing the English and Arabic sentiment analysis pipelines.
+        tuple: A tuple containing the FinBERT, CAMeL-BERT, and NER pipelines.
     """
-    print("Initializing sentiment analysis models... (This may take a moment)")
+    print("Initializing AI models... (This may take a moment for the first download)")
     try:
-        # Model for English financial text
         finbert_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-        
-        # Model for Arabic text
         camelbert_pipeline = pipeline("sentiment-analysis", model="CAMeL-Lab/bert-base-arabic-camelbert-da-sentiment")
-        
-        print("Sentiment models loaded successfully.")
-        return finbert_pipeline, camelbert_pipeline
+        ner_pipeline = pipeline("ner", model="dslim/bert-base-NER", aggregation_strategy="simple")
+        print("All AI models loaded successfully.")
+        return finbert_pipeline, camelbert_pipeline, ner_pipeline
     except Exception as e:
         print(f"Error loading models: {e}")
-        print("Please ensure you have a stable internet connection and the 'transformers' and 'torch' libraries are installed.")
-        return None, None
+        return None, None, None
 
-def analyze_sentiment(text, finbert, camelbert):
+# --- AI Core: Prediction Functions ---
+def predict_sentiment(text, finbert, camelbert):
     """
     Analyzes the sentiment of a given text by first detecting its language.
-    Handles long text by truncating it for the model.
-
-    Args:
-        text (str): The text to analyze.
-        finbert: The FinBERT sentiment analysis pipeline for English.
-        camelbert: The CAMeL-Lab BERT pipeline for Arabic.
-
-    Returns:
-        str: The sentiment label ('positive', 'negative', 'neutral') or 'unknown'.
     """
     if not text or not finbert or not camelbert:
         return 'unknown'
-        
     try:
-        # 1. Language Detection
         lang = detect(text)
-        print(f"   > Detected language: {lang}")
-
-        # 2. Conditional Routing to the appropriate model
-        #    FIX: Added truncation=True to handle texts longer than the model's max length (512 tokens).
         if lang == 'en':
-            sentiment_result = finbert(text, truncation=True)
+            result = finbert(text, truncation=True)
         elif lang == 'ar':
-            sentiment_result = camelbert(text, truncation=True)
+            result = camelbert(text, truncation=True)
         else:
-            print(f"   > Unsupported language '{lang}'. Skipping sentiment analysis.")
             return 'unsupported_language'
-        
-        label = sentiment_result[0]['label']
-        return label.lower()
-
-    except LangDetectException:
-        print("   > Could not detect language. Skipping sentiment analysis.")
-        return 'lang_detect_error'
-    except Exception as e:
-        print(f"   > An error occurred during sentiment analysis: {e}")
+        return result[0]['label'].lower()
+    except Exception:
         return 'analysis_error'
 
-# --- Database and Data Handling ---
-def setup_database(db_name="news.db"):
+def extract_company_names(text, ner_pipeline):
     """
-    Sets up the SQLite database and creates/updates the articles table.
-    FIX: Ensured the 'sentiment' column is included in the table creation.
+    Extracts company/organization names from text using a NER model.
     """
+    if not text or not ner_pipeline:
+        return ""
+    try:
+        entities = ner_pipeline(text)
+        company_names = {entity['word'].replace('##', '').strip() for entity in entities if entity['entity_group'] == 'ORG'}
+        return ", ".join(sorted(list(company_names)))
+    except Exception as e:
+        print(f"   > Error during company name extraction: {e}")
+        return ""
+
+# --- Database Fetching ---
+def fetch_latest_article(db_name="news.db"):
+    """
+    Connects to the SQLite database and fetches the most recently added article.
+    """
+    if not os.path.exists(db_name):
+        print(f"[ERROR] The database file '{db_name}' was not found.")
+        print("Please run the main scraper script first to create and populate the database.")
+        return None
     try:
         conn = sqlite3.connect(db_name)
-        cursor = conn.cursor()
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS articles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT UNIQUE,
-            title TEXT,
-            author TEXT,
-            publication_date TEXT,
-            cleaned_text TEXT,
-            sentiment TEXT
-        )
-        ''')
-        print(f"Database '{db_name}' is set up successfully.")
-        return conn, cursor
+        print(f"Successfully connected to '{db_name}'.")
+        query = "SELECT * FROM articles ORDER BY id DESC LIMIT 1"
+        df = pd.read_sql_query(query, conn)
+        if df.empty:
+            print("The 'articles' table is empty. No data to fetch.")
+            return None
+        print("Latest article fetched successfully.")
+        return df.iloc[0]
     except sqlite3.Error as e:
         print(f"Database error: {e}")
-        return None, None
-
-def preprocess_text(text):
-    """Cleans text for NLP analysis."""
-    if not text:
-        return ""
-    text = text.lower()
-    text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\@\w+', '', text)
-    text = re.sub(r'[^\w\s\u0600-\u06FF]', '', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def insert_into_db(cursor, conn, article_data):
-    """Inserts a single article into the database, ignoring duplicates."""
-    sql = ''' INSERT OR IGNORE INTO articles(url, title, author, publication_date, cleaned_text, sentiment)
-              VALUES(?,?,?,?,?,?) '''
-    try:
-        cursor.execute(sql, (
-            article_data['url'],
-            article_data['title'],
-            article_data['author'],
-            article_data['publication_date'],
-            article_data['cleaned_text'],
-            article_data['sentiment']
-        ))
-        conn.commit()
-    except sqlite3.Error as e:
-        print(f"Database insert error: {e}")
-
-def save_to_csv(data, filename="scraped_articles.csv"):
-    """Saves a list of dictionaries to a CSV file."""
-    if not data:
-        return
-    try:
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=data[0].keys())
-            writer.writeheader()
-            writer.writerows(data)
-        print(f"\nSuccessfully saved {len(data)} article(s) to '{filename}'")
-    # FIX: Added specific error handling for PermissionError.
-    except PermissionError:
-        print(f"\n[ERROR] Could not write to '{filename}'.")
-        print("Please make sure the file is not open in another program (like Excel) and try again.")
-    except IOError as e:
-        print(f"An unexpected error occurred while writing to CSV file: {e}")
-
-# --- Web Scraping Function ---
-def scrape_article_details(url):
-    """Scrapes the content of a single news article."""
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'lxml')
-        title = soup.find('h1', class_='article-title').text.strip() if soup.find('h1', class_='article-title') else "N/A"
-        date_tag = soup.find('div', class_='article-date')
-        date = date_tag.find('span').text.strip() if date_tag and date_tag.find('span') else "N/A"
-        author = soup.find('span', class_='author-name-text').text.strip() if soup.find('span', class_='author-name-text') else "N/A"
-        body_div = soup.find('div', class_='article-body')
-        full_text = '\n'.join([p.text.strip() for p in body_div.find_all('p')]) if body_div else "N/A"
-        return {'title': title, 'publication_date': date, 'author': author, 'full_text': full_text, 'url': url}
-    except requests.exceptions.RequestException as e:
-        print(f"   > Could not fetch article {url}. Error: {e}")
         return None
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
+            print(f"Database connection to '{db_name}' closed.")
+
+def display_prediction_report(article_data, predicted_sentiment, extracted_companies):
+    """
+    Displays the live prediction results in a structured report format.
+    """
+    print("\n" + "="*50)
+    print("      LIVE AI-POWERED ANALYSIS REPORT")
+    print("="*50)
+    
+    print(f"\n📄 ARTICLE: {article_data['title']}")
+    print(f"   URL: {article_data['url']}")
+    
+    print("\n" + "-"*50)
+    print("         PREDICTION & EXTRACTION RESULTS")
+    print("-"*50)
+
+    # Display Sentiment Prediction
+    sentiment = predicted_sentiment.upper()
+    sentiment_emoji = "❓"
+    if sentiment == 'POSITIVE':
+        sentiment_emoji = "📈"
+    elif sentiment == 'NEGATIVE':
+        sentiment_emoji = "📉"
+    elif sentiment == 'NEUTRAL':
+        sentiment_emoji = "📊"
+        
+    print(f"\n{sentiment_emoji} Predicted Sentiment: {sentiment}")
+
+    # Display Extracted Company Names
+    if not extracted_companies:
+        extracted_companies = "None Found"
+        
+    print(f"🏢 Mentioned Companies: {extracted_companies}")
+    
+    print("\n" + "="*50)
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    target_url = "https://www.zawya.com/en/capital-markets/equities/interview-gcc-ipos-are-shielded-from-global-turbulence-but-may-experience-some-delays-jp-morgan-myfdnxuq"
-
-    finbert_model, camelbert_model = initialize_sentiment_models()
-    if not finbert_model or not camelbert_model:
+    # 1. Initialize the AI models
+    finbert, camelbert, ner_model = initialize_ai_models()
+    if not finbert or not ner_model:
         exit()
 
-    conn, cursor = setup_database()
-    if not conn:
-        exit()
+    # 2. Fetch the latest article from the database
+    latest_article = fetch_latest_article()
 
-    print(f"\n--- Processing article: {target_url} ---")
-    details = scrape_article_details(target_url)
-    
-    if details:
-        cleaned_text = preprocess_text(details['full_text'])
-        
-        print("\n--- PREPROCESSING STEP ---")
-        print("\n[RAW TEXT SNIPPET]:")
-        print(details['full_text'][:250] + "...")
-        print("\n[CLEANED TEXT SNIPPET]:")
-        print(cleaned_text[:250] + "...")
-        print("--------------------------")
+    if latest_article is not None:
+        # 3. Get the text to be analyzed from the fetched data
+        # We use the 'cleaned_text' for sentiment and the original 'title' for NER
+        # as titles often have proper capitalization which helps NER models.
+        text_for_sentiment = latest_article.get('cleaned_text', '')
+        text_for_ner = latest_article.get('title', '') # Using title for company names
 
-        sentiment = analyze_sentiment(cleaned_text, finbert_model, camelbert_model)
-        print(f"   > Analyzed Sentiment: {sentiment.upper()}")
+        print("\nRunning live analysis on the fetched data...")
 
-        processed_article = {
-            'url': details['url'],
-            'title': details['title'],
-            'author': details['author'],
-            'publication_date': details['publication_date'],
-            'cleaned_text': cleaned_text,
-            'sentiment': sentiment
-        }
-        
-        insert_into_db(cursor, conn, processed_article)
-        save_to_csv([processed_article])
-        
-        print("\nAnalysis complete. Article processed and saved.")
+        # 4. Run the prediction models on the fetched data
+        live_sentiment = predict_sentiment(text_for_sentiment, finbert, camelbert)
+        live_companies = extract_company_names(text_for_ner, ner_model)
+
+        # 5. Display the live prediction report
+        display_prediction_report(latest_article, live_sentiment, live_companies)
     else:
-        print("\nFailed to scrape and process the article.")
-
-    conn.close()
+        print("\nCould not generate a prediction report because no data was found in the database.")
