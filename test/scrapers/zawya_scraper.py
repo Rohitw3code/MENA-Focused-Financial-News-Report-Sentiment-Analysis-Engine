@@ -33,10 +33,7 @@ def get_article_urls():
 
 def scrape_article_content(url):
     """
-    Scrapes the content and metadata of a single article.
-    
-    Returns:
-        A dictionary with raw HTML, cleaned text, and metadata.
+    Scrapes content and metadata, providing both raw and cleaned text. - MODIFIED
     """
     print(f"Scraping article content from: {url}")
     try:
@@ -53,15 +50,26 @@ def scrape_article_content(url):
         author = soup.find('span', class_='author-name-text').text.strip() if soup.find('span', class_='author-name-text') else "N/A"
         
         article_body_div = soup.find('div', class_='article-body')
-        full_text = '\n'.join([p.text.strip() for p in article_body_div.find_all('p')]) if article_body_div else "N/A"
+        
+        if article_body_div:
+            # 1. Get raw, unprocessed text from the entire article container
+            raw_text = article_body_div.get_text(separator='\n', strip=True)
+            
+            # 2. Get cleaned, preprocessed text specifically from paragraphs for AI analysis
+            paragraphs = article_body_div.find_all('p')
+            cleaned_text = '\n'.join([p.text.strip() for p in paragraphs])
+        else:
+            raw_text = "N/A"
+            cleaned_text = "N/A"
 
         return {
             'url': url,
             'title': title,
             'publication_date': date,
             'author': author,
-            'full_text': full_text,
-            'raw_html': raw_html
+            'raw_html': raw_html,
+            'raw_text': raw_text,          # New field with raw text
+            'cleaned_text': cleaned_text   # Cleaned text for analysis
         }
     except requests.exceptions.RequestException as e:
         print(f"Could not fetch article {url}. Error: {e}")

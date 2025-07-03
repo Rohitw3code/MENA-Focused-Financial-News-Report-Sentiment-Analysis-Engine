@@ -1,22 +1,58 @@
 # main.py
 
 import database
-from scrapers import zawya_scraper # This is where you import your scrapers
+from scrapers import zawya_scraper
 from analysis import sentiment_analyzer
 
-def run_pipeline():
+def run_analysis_pipeline():
     """
-    Executes the full data pipeline:
-    1. Scrapes links for articles.
-    2. Scrapes content for each new link.
-    3. Performs sentiment analysis on new articles.
+    Executes the analysis part of the data pipeline.
+    This function assumes scraping has already been done.
     """
-    # --- INITIALIZATION ---
-    # Set up the database and tables
-    database.create_database()
+    # =================================================================================
+    # STEP 3: ANALYZE SENTIMENT
+    # =================================================================================
+    print("\n" + "="*25 + " STEP 3: ANALYZING SENTIMENT " + "="*23)
+    articles_to_analyze = database.get_unanalyzed_articles()
+    sentiments_found_count = 0
+    
+    if not articles_to_analyze:
+        print("No new articles to analyze for sentiment.")
+    else:
+        print(f"Found {len(articles_to_analyze)} new articles to analyze.")
+        for article in articles_to_analyze:
+            # Unpack the tuple returned by the function (entities_list, usage_stats)
+            entities_list, usage_stats = sentiment_analyzer.analyze_text_for_sentiment(article['text'])
+            
+            # Log usage data if any was returned
+            if usage_stats:
+                database.add_usage_log(
+                    article_id=article['id'],
+                    provider=sentiment_analyzer.LLM_PROVIDER,
+                    usage_stats=usage_stats
+                )
 
-    # Register all scraper modules here. To add a new website, create a scraper
-    # and add its module to this list.
+            # Process the list of entities if it's not empty
+            if entities_list:
+                print(f"-> Found {len(entities_list)} valid entities in article ID {article['id']}.")
+                # Loop over the entities_list
+                for entity in entities_list:
+                    database.add_sentiment(
+                        article_id=article['id'],
+                        entity_name=entity.entity_name,
+                        entity_type=entity.entity_type,
+                        sentiment=entity.sentiment,
+                        reasoning=entity.reasoning
+                    )
+                    sentiments_found_count += 1
+            
+    print(f"\nFinished sentiment analysis. Found {sentiments_found_count} new sentiment records.")
+    
+
+def run_scraping_pipeline():
+    """
+    Executes the scraping part of the data pipeline.
+    """
     scraper_modules = [zawya_scraper]
     
     # =================================================================================
@@ -30,13 +66,10 @@ def run_pipeline():
         if not urls:
             print(f"No links found for {scraper.SOURCE_NAME}.")
             continue
-            
         for url in urls:
-            # Add link to the database; duplicates are ignored automatically
-            link_id = database.add_link(url, scraper.SOURCE_NAME)
-            if link_id:
+            if database.add_link(url=url, source=scraper.SOURCE_NAME):
                 new_links_found += 1
-    print(f"\nFinished scraping links. Found {new_links_found} new URLs.")
+    print(f"\nFinished scraping links. Found {new_links_found} new URLs to process.")
 
     # =================================================================================
     # STEP 2: SCRAPE ARTICLES
@@ -49,43 +82,27 @@ def run_pipeline():
     else:
         print(f"Found {len(links_to_scrape)} new links to scrape articles from.")
         for link in links_to_scrape[:10]:
-            # Find the correct scraper based on the source stored in the database
-            scraper_to_use = None
-            for s_mod in scraper_modules:
-                if s_mod.SOURCE_NAME == link['source']:
-                    scraper_to_use = s_mod
-                    break
-            
+            scraper_to_use = next((s for s in scraper_modules if s.SOURCE_NAME == link['source']), None)
             if scraper_to_use:
                 article_data = scraper_to_use.scrape_article_content(link['url'])
                 if article_data:
-                    # Add the scraped article to the database
-                    database.add_article(link['id'], article_data)
+                    database.add_article(link_id=link['id'], article_data=article_data)
                     articles_scraped_count += 1
     print(f"\nFinished scraping articles. Scraped {articles_scraped_count} new articles.")
 
-    # =================================================================================
-    # STEP 3: ANALYZE SENTIMENT
-    # =================================================================================
-    print("\n" + "="*25 + " STEP 3: ANALYZING SENTIMENT " + "="*23)
-    articles_to_analyze = database.get_unanalyzed_articles()
-    sentiments_found_count = 0
-    if not articles_to_analyze:
-        print("No new articles to analyze for sentiment.")
-    else:
-        print(f"Found {len(articles_to_analyze)} new articles to analyze.")
-        for article in articles_to_analyze:
-            sentiments = sentiment_analyzer.analyze_text_for_sentiment(article['text'])
-            if sentiments:
-                for sent in sentiments:
-                    # Add each company's sentiment to the database
-                    database.add_sentiment(article['id'], sent.company_name, sent.sentiment)
-                    sentiments_found_count += 1
-                print(f"-> Found {len(sentiments)} companies in article ID {article['id']}.")
-    print(f"\nFinished sentiment analysis. Found {sentiments_found_count} new sentiment records.")
-
-    print("\n" + "="*30 + " PIPELINE COMPLETE " + "="*30)
-
 
 if __name__ == "__main__":
-    run_pipeline()
+    # --- INITIALIZATION ---
+    # This must be the first step to ensure the database and tables exist.
+    database.create_database()
+    
+    # --- EXECUTION ---
+    # To keep the main function clean, scraping and analysis are separated.
+    
+    # You can comment this out if you don't need to scrape for new articles every time.
+    run_scraping_pipeline() 
+    
+    # Run the analysis pipeline on the scraped articles.
+    run_analysis_pipeline()
+
+    print("\n" + "="*30 + " PIPELINE COMPLETE " + "="*30)
