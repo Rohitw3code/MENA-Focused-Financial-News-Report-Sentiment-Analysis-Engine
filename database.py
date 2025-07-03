@@ -10,7 +10,7 @@ def create_database():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # Tables 1: links (Unchanged)
+    # Table 1: Links to be scraped
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS links (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,8 +18,8 @@ def create_database():
         source_website TEXT NOT NULL,
         scraped_date TEXT NOT NULL
     )''')
-    
-    # MODIFIED: Table 2: articles - Removed 'raw_html' column
+
+    # Table 2: Scraped article content
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS articles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +33,7 @@ def create_database():
         FOREIGN KEY (link_id) REFERENCES links (id)
     )''')
 
-    # Table 3: sentiments (Unchanged)
+    # Table 3: Sentiment analysis results for each entity in an article
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS sentiments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +46,7 @@ def create_database():
         FOREIGN KEY (article_id) REFERENCES articles (id)
     )''')
     
-    # Table 4: usage_logs (Unchanged)
+    # Table 4: Logs for API usage and cost tracking
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS usage_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,13 +60,50 @@ def create_database():
         FOREIGN KEY (article_id) REFERENCES articles (id)
     )''')
 
+    # Table 5: Key-value store for application settings
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS app_config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )''')
+
     conn.commit()
     conn.close()
     print("Database initialized successfully.")
 
+def get_config_value(key, default=None):
+    """Retrieves a configuration value from the app_config table."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM app_config WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else default
+
+def set_config_value(key, value):
+    """Sets or updates a configuration value in the app_config table."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+def add_link(url, source):
+    """Adds a new link to the database, ignoring duplicates."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        scraped_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("INSERT INTO links (url, source_website, scraped_date) VALUES (?, ?, ?)", (url, source, scraped_date))
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
 
 def add_article(link_id, article_data):
-    """MODIFIED: Adds a scraped article to the database without raw_html."""
+    """Adds a scraped article to the database."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
@@ -89,8 +126,8 @@ def add_article(link_id, article_data):
     finally:
         conn.close()
 
-# --- Other functions (unchanged) ---
 def add_sentiment(article_id, entity_name, entity_type, financial_sentiment, overall_sentiment, reasoning):
+    """Adds a dual sentiment record to the database."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -100,20 +137,8 @@ def add_sentiment(article_id, entity_name, entity_type, financial_sentiment, ove
     conn.commit()
     conn.close()
 
-def add_link(url, source):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    try:
-        scraped_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute("INSERT INTO links (url, source_website, scraped_date) VALUES (?, ?, ?)", (url, source, scraped_date))
-        conn.commit()
-        return cursor.lastrowid
-    except sqlite3.IntegrityError:
-        return None
-    finally:
-        conn.close()
-
 def add_usage_log(article_id, provider, usage_stats):
+    """Adds a new usage log entry to the database."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -133,6 +158,7 @@ def add_usage_log(article_id, provider, usage_stats):
     conn.close()
 
 def get_unscraped_links():
+    """Fetches links that have not yet been scraped and stored in the articles table."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT l.id, l.url, l.source_website FROM links l LEFT JOIN articles a ON l.id = a.link_id WHERE a.id IS NULL')
@@ -141,6 +167,7 @@ def get_unscraped_links():
     return links
 
 def get_unanalyzed_articles():
+    """Fetches articles that have been scraped but not yet analyzed."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT a.id, a.cleaned_text FROM articles a LEFT JOIN sentiments s ON a.id = s.article_id WHERE s.id IS NULL AND a.cleaned_text IS NOT NULL AND a.cleaned_text != "N/A" GROUP BY a.id')

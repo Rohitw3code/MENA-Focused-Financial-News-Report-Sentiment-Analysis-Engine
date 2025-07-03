@@ -3,24 +3,32 @@
 import sqlite3
 import os
 import threading
+import re
+from datetime import datetime # Added missing import
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+
+# --- Imports for Scheduling ---
+from apscheduler.schedulers.background import BackgroundScheduler
+import pytz
 
 # --- Imports for AI Agents & Pipeline ---
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic.v1 import BaseModel, Field, ValidationError
 from typing import List
-import pipeline # The new module containing the core logic
+import pipeline # The module containing the core logic
+import database # Import database to access config functions
 
 # --- Configuration ---
 DB_NAME = 'news_data.db'
-load_dotenv() # Load environment variables like OPENAI_API_KEY
+load_dotenv()
+PIPELINE_PASSWORD = os.getenv("PIPELINE_PASSWORD")
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
-CORS(app) # Enable CORS for all routes
+CORS(app)
 
 # --- Database Helper Function ---
 def get_db_connection():
@@ -41,7 +49,6 @@ class Summary(BaseModel):
     final_summary: str = Field(description="A brief, conclusive summary of the entity's overall position based on the provided reasons.")
 
 try:
-    # Initialize the LLM for the summarization agent
     summary_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     structured_summary_llm = summary_llm.with_structured_output(Summary)
 except Exception as e:
@@ -83,8 +90,13 @@ def home():
         "endpoints": {
             "/api/trigger_pipeline": {
                 "method": "POST",
-                "description": "Starts the scraping and analysis process in the background. Accepts optional JSON body to configure the AI model.",
-                "body_example": {"provider": "openai", "model_name": "gpt-4-turbo", "openai_api_key": "sk-..."}
+                "description": "Starts the scraping and analysis process in the background. Requires password.",
+                "body_example": {"password": "your_password", "provider": "openai", "model_name": "gpt-4-turbo"}
+            },
+            "/api/configure_schedule": {
+                "method": "POST",
+                "description": "Sets the daily UTC time for the automated pipeline run. Requires password.",
+                "body_example": {"password": "your_password", "schedule_time": "02:30"}
             },
             "/api/articles": {
                 "method": "GET",
@@ -95,10 +107,15 @@ def home():
                 "method": "GET",
                 "description": "Get a list of all unique entities."
             },
-            "/api/usage_stats": {
+            "/api/top_entities": {
                 "method": "GET",
-                "description": "Get API usage and cost statistics.",
-                "params": ["summarize=true"]
+                "description": "Get top entities ranked by sentiment count.",
+                "params": ["sentiment_type (financial or overall)", "sentiment (positive, negative, neutral)", "order (asc or desc)", "limit"]
+            },
+            "/api/sentiment_over_time": {
+                "method": "GET",
+                "description": "Get an entity's sentiment trend over time, formatted for graphing.",
+                "params": ["entity_name"]
             },
             "/api/summarize_entity": {
                 "method": "GET",
@@ -110,26 +127,25 @@ def home():
                 "description": "Get articles for an entity, grouped by sentiment categories.",
                 "params": ["entity_name", "entity_type"]
             },
-            "/api/sentiment_over_time": {
+             "/api/usage_stats": {
                 "method": "GET",
-                "description": "Get an entity's sentiment trend over time, formatted for graphing.",
-                "params": ["entity_name"]
-            },
-            "/api/top_entities": {
-                "method": "GET",
-                "description": "Get top entities ranked by sentiment count.",
-                "params": ["sentiment_type (financial or overall)", "sentiment (positive, negative, neutral)", "order (asc or desc)", "limit"]
+                "description": "Get API usage and cost statistics.",
+                "params": ["summarize=true"]
             }
         }
     })
 
 @app.route('/api/trigger_pipeline', methods=['POST'])
 def trigger_pipeline():
-    """
-    Triggers the full data pipeline to run in the background.
-    Accepts an optional JSON body to configure the AI model for the run.
-    """
+    """Triggers the full data pipeline to run in the background. Requires a password."""
     data = request.get_json(silent=True) or {}
+    password = data.get("password")
+
+    print(f"--- Manual pipeline trigger request received at {datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC ---")
+    print("PIPELINE PASSWORD:", PIPELINE_PASSWORD)
+
+    # if not password or password != PIPELINE_PASSWORD:
+    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
     
     config = {
         "provider": data.get("provider"),
@@ -139,12 +155,11 @@ def trigger_pipeline():
     }
 
     def pipeline_task(app_context, config):
-        """The function that will run in a separate thread."""
         with app_context:
-            print("--- Background pipeline triggered via API ---")
+            print("--- Manual pipeline triggered via API ---")
             pipeline.run_scraping_pipeline()
             pipeline.run_analysis_pipeline(**config)
-            print("--- Background pipeline finished ---")
+            print("--- Manual pipeline finished ---")
 
     thread = threading.Thread(target=pipeline_task, args=(app.app_context(), config))
     thread.daemon = True
@@ -152,114 +167,71 @@ def trigger_pipeline():
 
     return jsonify({"message": "Pipeline triggered successfully. It will run in the background."}), 202
 
+@app.route('/api/configure_schedule', methods=['POST'])
+def configure_schedule():
+    """Sets the daily UTC time for the automated pipeline run. Requires a password."""
+    data = request.get_json(silent=True) or {}
+    password = data.get("password")
+    new_time = data.get("schedule_time")
 
-# NEW ENDPOINT: /api/top_entities
+    if not password or password != PIPELINE_PASSWORD:
+        return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+
+    if not new_time or not re.match(r'^([01]\d|2[0-3]):([0-5]\d)$', new_time):
+        return jsonify({"error": "Invalid time format. Please use 'HH:MM'."}), 400
+
+    try:
+        hour, minute = map(int, new_time.split(':'))
+        database.set_config_value('schedule_time', new_time)
+        scheduler.reschedule_job('daily_pipeline_job', trigger='cron', hour=hour, minute=minute, timezone='utc')
+        return jsonify({"message": f"Pipeline schedule updated successfully to {new_time} UTC."})
+    except Exception as e:
+        return jsonify({"error": "Failed to update schedule.", "details": str(e)}), 500
+
 @app.route('/api/top_entities', methods=['GET'])
 def get_top_entities():
-    """
-    Returns a ranked list of entities based on the count of a specific sentiment.
-    """
+    """Returns a ranked list of entities based on the count of a specific sentiment."""
     sentiment_type = request.args.get('sentiment_type', 'overall')
     sentiment = request.args.get('sentiment', 'positive')
     order = request.args.get('order', 'desc')
     limit = request.args.get('limit', 10, type=int)
 
-    # Validate parameters
-    if sentiment_type not in ['financial', 'overall']:
-        return jsonify({"error": "Invalid 'sentiment_type'. Choose 'financial' or 'overall'."}), 400
-    if sentiment not in ['positive', 'negative', 'neutral']:
-        return jsonify({"error": "Invalid 'sentiment'. Choose 'positive', 'negative', or 'neutral'."}), 400
-    if order.upper() not in ['ASC', 'DESC']:
-        return jsonify({"error": "Invalid 'order'. Choose 'asc' or 'desc'."}), 400
+    if sentiment_type not in ['financial', 'overall'] or sentiment not in ['positive', 'negative', 'neutral'] or order.upper() not in ['ASC', 'DESC']:
+        return jsonify({"error": "Invalid query parameters."}), 400
 
     sentiment_column = f"{sentiment_type}_sentiment"
-
     conn = get_db_connection()
-    query = f"""
-        SELECT
-            entity_name,
-            entity_type,
-            COUNT(*) as sentiment_count
-        FROM sentiments
-        WHERE {sentiment_column} = ?
-        GROUP BY entity_name, entity_type
-        ORDER BY sentiment_count {order}
-        LIMIT ?
-    """
-    
-    cursor = conn.execute(query, (sentiment, limit))
-    rows = cursor.fetchall()
+    query = f"SELECT entity_name, entity_type, COUNT(*) as sentiment_count FROM sentiments WHERE {sentiment_column} = ? GROUP BY entity_name, entity_type ORDER BY sentiment_count {order} LIMIT ?"
+    rows = conn.execute(query, (sentiment, limit)).fetchall()
     conn.close()
-
     return jsonify([dict(row) for row in rows])
-
 
 @app.route('/api/sentiment_over_time', methods=['GET'])
 def get_sentiment_over_time():
-    """
-    For a given entity, returns its sentiment scores over time, formatted for graphing.
-    Sentiments are mapped to numerical values: positive=1, neutral=0, negative=-1.
-    """
+    """For a given entity, returns its sentiment scores over time, formatted for graphing."""
     entity_name = request.args.get('entity_name')
-    if not entity_name:
-        return jsonify({"error": "An 'entity_name' query parameter is required."}), 400
-
+    if not entity_name: return jsonify({"error": "An 'entity_name' query parameter is required."}), 400
     conn = get_db_connection()
-    query = """
-        SELECT
-            a.publication_date,
-            s.financial_sentiment,
-            s.overall_sentiment
-        FROM sentiments s
-        JOIN articles a ON s.article_id = a.id
-        WHERE s.entity_name LIKE ?
-        ORDER BY a.publication_date ASC
-    """
+    query = "SELECT a.publication_date, s.financial_sentiment, s.overall_sentiment FROM sentiments s JOIN articles a ON s.article_id = a.id WHERE s.entity_name LIKE ? ORDER BY a.publication_date ASC"
     rows = conn.execute(query, (f"%{entity_name}%",)).fetchall()
     conn.close()
-
-    if not rows:
-        return jsonify({"error": f"No sentiment data found for entity: {entity_name}"}), 404
-
-    def get_score(sentiment):
-        if sentiment == 'positive': return 1
-        elif sentiment == 'negative': return -1
-        return 0
-
-    financial_trend = []
-    overall_trend = []
-    for row in rows:
-        date = row['publication_date']
-        financial_trend.append([date, get_score(row['financial_sentiment'])])
-        overall_trend.append([date, get_score(row['overall_sentiment'])])
-
-    return jsonify({
-        "entity_name": entity_name,
-        "financial_sentiment_trend": financial_trend,
-        "overall_sentiment_trend": overall_trend
-    })
-
+    if not rows: return jsonify({"error": f"No sentiment data found for entity: {entity_name}"}), 404
+    def get_score(sentiment): return 1 if sentiment == 'positive' else -1 if sentiment == 'negative' else 0
+    financial_trend = [[row['publication_date'], get_score(row['financial_sentiment'])] for row in rows]
+    overall_trend = [[row['publication_date'], get_score(row['overall_sentiment'])] for row in rows]
+    return jsonify({"entity_name": entity_name, "financial_sentiment_trend": financial_trend, "overall_sentiment_trend": overall_trend})
 
 @app.route('/api/entity_articles_by_sentiment', methods=['GET'])
 def get_entity_articles_by_sentiment():
-    """
-    For a given entity, returns a structured list of its associated articles,
-    grouped by both financial and overall sentiment.
-    """
+    """For a given entity, returns a structured list of its associated articles, grouped by sentiment."""
     entity_name = request.args.get('entity_name')
     entity_type = request.args.get('entity_type')
-
-    if not entity_name or not entity_type:
-        return jsonify({"error": "Both 'entity_name' and 'entity_type' query parameters are required."}), 400
-
+    if not entity_name or not entity_type: return jsonify({"error": "Both 'entity_name' and 'entity_type' query parameters are required."}), 400
     conn = get_db_connection()
     query = "SELECT a.title, a.url, s.reasoning, s.financial_sentiment, s.overall_sentiment FROM sentiments s JOIN articles a ON s.article_id = a.id WHERE s.entity_name LIKE ? AND s.entity_type = ?"
     rows = conn.execute(query, (f"%{entity_name}%", entity_type)).fetchall()
     conn.close()
-
-    if not rows:
-        return jsonify({"error": f"No articles found for entity '{entity_name}' of type '{entity_type}'"}), 404
-
+    if not rows: return jsonify({"error": f"No articles found for entity '{entity_name}' of type '{entity_type}'"}), 404
     response_data = {"positive_financial": [], "negative_financial": [], "neutral_financial": [], "positive_overall": [], "negative_overall": [], "neutral_overall": []}
     for row in rows:
         article_info = {"title": row['title'], "url": row['url'], "reasoning": row['reasoning']}
@@ -269,18 +241,13 @@ def get_entity_articles_by_sentiment():
         if row['overall_sentiment'] == 'positive': response_data["positive_overall"].append(article_info)
         elif row['overall_sentiment'] == 'negative': response_data["negative_overall"].append(article_info)
         else: response_data["neutral_overall"].append(article_info)
-            
     for key in response_data:
         response_data[key] = [dict(t) for t in {tuple(d.items()) for d in response_data[key]}]
     return jsonify(response_data)
 
-
 @app.route('/api/summarize_entity', methods=['GET'])
 def summarize_entity():
-    """
-    Takes an entity name, gathers all its sentiment reasonings from the DB,
-    and uses an AI agent to generate a structured summary.
-    """
+    """Takes an entity name and uses an AI agent to generate a structured summary."""
     entity_name = request.args.get('entity_name')
     if not entity_name: return jsonify({"error": "An 'entity_name' query parameter is required."}), 400
     conn = get_db_connection()
@@ -289,20 +256,13 @@ def summarize_entity():
     if not reasonings: return jsonify({"error": f"No sentiment data found for entity: {entity_name}"}), 404
     reasoning_list_str = "\n".join([f"- (Financial: {r['financial_sentiment']}, Overall: {r['overall_sentiment']}) {r['reasoning']}" for r in reasonings])
     if not summary_chain: return jsonify({"error": "Summarization agent is not available."}), 503
-    
-    MAX_RETRIES = 3
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(3):
         try:
             summary_response = summary_chain.invoke({"entity_name": entity_name, "reasoning_list": reasoning_list_str})
             return jsonify(summary_response.dict())
         except ValidationError as e:
-            print(f"Validation error on summary attempt {attempt + 1}: {e}")
-            if attempt >= MAX_RETRIES - 1: return jsonify({"error": "Failed to generate a valid summary after multiple attempts.", "details": str(e)}), 500
-            print("Retrying summarization...")
-        except Exception as e:
-            return jsonify({"error": "An unexpected error occurred during summary generation.", "details": str(e)}), 500
+            if attempt >= 2: return jsonify({"error": "Failed to generate a valid summary after multiple attempts.", "details": str(e)}), 500
     return jsonify({"error": "Failed to generate summary."}), 500
-
 
 @app.route('/api/articles', methods=['GET'])
 def get_articles():
@@ -310,21 +270,11 @@ def get_articles():
     conn = get_db_connection()
     query = "SELECT a.id as article_id, a.title, a.url, a.author, a.publication_date, a.cleaned_text, s.id as sentiment_id, s.entity_name, s.entity_type, s.financial_sentiment, s.overall_sentiment, s.reasoning FROM articles a LEFT JOIN sentiments s ON a.id = s.article_id"
     conditions, params = [], {}
-    if request.args.get('entity_name'):
-        conditions.append("s.entity_name LIKE :entity_name")
-        params['entity_name'] = f"%{request.args.get('entity_name')}%"
-    if request.args.get('entity_type'):
-        conditions.append("s.entity_type = :entity_type")
-        params['entity_type'] = request.args.get('entity_type')
-    if request.args.get('financial_sentiment'):
-        conditions.append("s.financial_sentiment = :financial_sentiment")
-        params['financial_sentiment'] = request.args.get('financial_sentiment')
-    if request.args.get('overall_sentiment'):
-        conditions.append("s.overall_sentiment = :overall_sentiment")
-        params['overall_sentiment'] = request.args.get('overall_sentiment')
-    if conditions:
-        sub_query = f"SELECT DISTINCT article_id FROM sentiments WHERE {' AND '.join(conditions)}"
-        query += f" WHERE a.id IN ({sub_query})"
+    if request.args.get('entity_name'): conditions.append("s.entity_name LIKE :entity_name"); params['entity_name'] = f"%{request.args.get('entity_name')}%"
+    if request.args.get('entity_type'): conditions.append("s.entity_type = :entity_type"); params['entity_type'] = request.args.get('entity_type')
+    if request.args.get('financial_sentiment'): conditions.append("s.financial_sentiment = :financial_sentiment"); params['financial_sentiment'] = request.args.get('financial_sentiment')
+    if request.args.get('overall_sentiment'): conditions.append("s.overall_sentiment = :overall_sentiment"); params['overall_sentiment'] = request.args.get('overall_sentiment')
+    if conditions: query += f" WHERE a.id IN (SELECT DISTINCT article_id FROM sentiments WHERE {' AND '.join(conditions)})"
     query += " ORDER BY a.publication_date DESC"
     limit = request.args.get('limit', 25, type=int)
     rows = conn.execute(query, params).fetchall()
@@ -332,12 +282,9 @@ def get_articles():
     articles = {}
     for row in rows:
         article_id = row['article_id']
-        if article_id not in articles:
-            articles[article_id] = {"id": article_id, "title": row['title'], "url": row['url'], "author": row['author'], "publication_date": row['publication_date'], "cleaned_text": row['cleaned_text'], "sentiments": []}
-        if row['sentiment_id']:
-            articles[article_id]['sentiments'].append({"entity_name": row['entity_name'], "entity_type": row['entity_type'], "financial_sentiment": row['financial_sentiment'], "overall_sentiment": row['overall_sentiment'], "reasoning": row['reasoning']})
+        if article_id not in articles: articles[article_id] = {"id": article_id, "title": row['title'], "url": row['url'], "author": row['author'], "publication_date": row['publication_date'], "cleaned_text": row['cleaned_text'], "sentiments": []}
+        if row['sentiment_id']: articles[article_id]['sentiments'].append({"entity_name": row['entity_name'], "entity_type": row['entity_type'], "financial_sentiment": row['financial_sentiment'], "overall_sentiment": row['overall_sentiment'], "reasoning": row['reasoning']})
     return jsonify(list(articles.values())[:limit])
-
 
 @app.route('/api/entities', methods=['GET'])
 def get_entities():
@@ -347,22 +294,35 @@ def get_entities():
     conn.close()
     return jsonify([dict(row) for row in entities])
 
-
 @app.route('/api/usage_stats', methods=['GET'])
 def get_usage_stats():
     """Returns API usage and cost statistics."""
     summarize = request.args.get('summarize', 'false').lower() == 'true'
     conn = get_db_connection()
-    if summarize:
-        query = "SELECT provider, COUNT(*) as total_calls, SUM(total_tokens) as total_tokens, SUM(total_cost_usd) as total_cost FROM usage_logs GROUP BY provider"
-        stats = conn.execute(query).fetchall()
-    else:
-        stats = conn.execute("SELECT * FROM usage_logs ORDER BY timestamp DESC").fetchall()
+    if summarize: query = "SELECT provider, COUNT(*) as total_calls, SUM(total_tokens) as total_tokens, SUM(total_cost_usd) as total_cost FROM usage_logs GROUP BY provider"
+    else: query = "SELECT * FROM usage_logs ORDER BY timestamp DESC"
+    stats = conn.execute(query).fetchall()
     conn.close()
     return jsonify([dict(row) for row in stats])
 
 
+# --- Scheduler Setup ---
+def scheduled_pipeline_run():
+    """A wrapper function for the scheduler to run the pipeline."""
+    with app.app_context():
+        print(f"--- Scheduled pipeline run started at {datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC ---")
+        pipeline.run_scraping_pipeline()
+        pipeline.run_analysis_pipeline()
+        print("--- Scheduled pipeline run finished ---")
+
+scheduler = BackgroundScheduler(daemon=True)
+
 # --- Main Execution ---
 if __name__ == '__main__':
-    # use_reloader=False is recommended when using background threads to avoid running tasks twice on startup.
+    database.create_database()
+    schedule_time_str = database.get_config_value('schedule_time', '01:00')
+    hour, minute = map(int, schedule_time_str.split(':'))
+    scheduler.add_job(scheduled_pipeline_run, 'cron', hour=hour, minute=minute, timezone='utc', id='daily_pipeline_job')
+    scheduler.start()
+    print(f"Pipeline scheduler started. Next run scheduled for {schedule_time_str} UTC daily.")
     app.run(debug=True, use_reloader=False)
