@@ -6,8 +6,7 @@ from analysis import sentiment_analyzer
 
 def run_analysis_pipeline():
     """
-    Executes the analysis part of the data pipeline.
-    This function assumes scraping has already been done.
+    Executes the analysis part of the data pipeline and tracks total cost.
     """
     # =================================================================================
     # STEP 3: ANALYZE SENTIMENT
@@ -15,6 +14,7 @@ def run_analysis_pipeline():
     print("\n" + "="*25 + " STEP 3: ANALYZING SENTIMENT " + "="*23)
     articles_to_analyze = database.get_unanalyzed_articles()
     sentiments_found_count = 0
+    total_session_cost = 0.0  # Initialize total cost for this session
     
     if not articles_to_analyze:
         print("No new articles to analyze for sentiment.")
@@ -24,13 +24,15 @@ def run_analysis_pipeline():
             # Unpack the tuple returned by the function (entities_list, usage_stats)
             entities_list, usage_stats = sentiment_analyzer.analyze_text_for_sentiment(article['text'])
             
-            # Log usage data if any was returned
+            # Log usage data and accumulate cost if any was returned
             if usage_stats:
                 database.add_usage_log(
                     article_id=article['id'],
                     provider=sentiment_analyzer.LLM_PROVIDER,
                     usage_stats=usage_stats
                 )
+                # Add the cost of this call to the session total
+                total_session_cost += usage_stats.get('total_cost_usd', 0.0)
 
             # Process the list of entities if it's not empty
             if entities_list:
@@ -47,6 +49,8 @@ def run_analysis_pipeline():
                     sentiments_found_count += 1
             
     print(f"\nFinished sentiment analysis. Found {sentiments_found_count} new sentiment records.")
+    # Display the total accumulated cost for the session
+    print(f"\nTotal estimated cost for this session: ${total_session_cost:.6f} USD")
     
 
 def run_scraping_pipeline():

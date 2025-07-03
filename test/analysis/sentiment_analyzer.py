@@ -18,7 +18,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 # --- CONFIGURATION ---
 # Change this value to 'openai' to use ChatGPT, or 'groq' to use Groq.
-LLM_PROVIDER = 'openai'
+LLM_PROVIDER = 'groq'
 
 # Load environment variables from .env file
 load_dotenv()
