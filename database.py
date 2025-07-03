@@ -2,6 +2,7 @@
 
 import sqlite3
 from datetime import datetime
+import pytz # Import pytz for timezone-aware datetimes
 
 DB_NAME = 'news_data.db'
 
@@ -66,6 +67,23 @@ def create_database():
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     )''')
+    
+    # Table 6: Statistics for each execution of the pipeline.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_timestamp TEXT NOT NULL,
+        new_links_found INTEGER,
+        articles_scraped INTEGER,
+        entities_analyzed INTEGER,
+        status TEXT
+    )''')
+    
+    # MODIFIED: Check and set default schedule time if it's not already present
+    cursor.execute("SELECT value FROM app_config WHERE key = 'schedule_time'")
+    if cursor.fetchone() is None:
+        cursor.execute("INSERT INTO app_config (key, value) VALUES (?, ?)", ('schedule_time', '01:00'))
+        print("Default schedule time ('01:00') set in app_config.")
 
     conn.commit()
     conn.close()
@@ -154,6 +172,23 @@ def add_usage_log(article_id, provider, usage_stats):
         usage_stats.get('total_cost_usd'),
         timestamp
     ))
+    conn.commit()
+    conn.close()
+    
+def add_pipeline_run(stats):
+    """Adds a new pipeline run record to the database."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO pipeline_runs (run_timestamp, new_links_found, articles_scraped, entities_analyzed, status) VALUES (?, ?, ?, ?, ?)",
+        (
+            datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S'),
+            stats.get('new_links_found', 0),
+            stats.get('articles_scraped', 0),
+            stats.get('entities_analyzed', 0),
+            stats.get('status', 'Completed')
+        )
+    )
     conn.commit()
     conn.close()
 

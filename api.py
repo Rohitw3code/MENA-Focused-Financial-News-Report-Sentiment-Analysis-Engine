@@ -4,7 +4,7 @@ import sqlite3
 import os
 import threading
 import re
-from datetime import datetime # Added missing import
+from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -25,6 +25,15 @@ import database # Import database to access config functions
 DB_NAME = 'news_data.db'
 load_dotenv()
 PIPELINE_PASSWORD = os.getenv("PIPELINE_PASSWORD")
+
+# --- Global State for Pipeline Tracking ---
+pipeline_status_tracker = {
+    "is_running": False,
+    "status": "Idle",
+    "progress": 0,
+    "total": 0,
+    "current_task": "N/A"
+}
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
@@ -98,6 +107,14 @@ def home():
                 "description": "Sets the daily UTC time for the automated pipeline run. Requires password.",
                 "body_example": {"password": "your_password", "schedule_time": "02:30"}
             },
+            "/api/pipeline_status": {
+                "method": "GET",
+                "description": "Returns the real-time status of the currently running pipeline."
+            },
+            "/api/pipeline_last_run": {
+                "method": "GET",
+                "description": "Returns the statistics from the most recently completed pipeline run."
+            },
             "/api/articles": {
                 "method": "GET",
                 "description": "Get and filter articles with sentiment data.",
@@ -138,14 +155,14 @@ def home():
 @app.route('/api/trigger_pipeline', methods=['POST'])
 def trigger_pipeline():
     """Triggers the full data pipeline to run in the background. Requires a password."""
+    if pipeline_status_tracker["is_running"]:
+        return jsonify({"error": "A pipeline is already running."}), 409
+
     data = request.get_json(silent=True) or {}
     password = data.get("password")
 
-    print(f"--- Manual pipeline trigger request received at {datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC ---")
-    print("PIPELINE PASSWORD:", PIPELINE_PASSWORD)
-
-    # if not password or password != PIPELINE_PASSWORD:
-    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+    if not password or password != PIPELINE_PASSWORD:
+        return jsonify({"error": "Unauthorized. A valid password is required."}), 401
     
     config = {
         "provider": data.get("provider"),
@@ -156,10 +173,21 @@ def trigger_pipeline():
 
     def pipeline_task(app_context, config):
         with app_context:
-            print("--- Manual pipeline triggered via API ---")
-            pipeline.run_scraping_pipeline()
-            pipeline.run_analysis_pipeline(**config)
-            print("--- Manual pipeline finished ---")
+            pipeline_status_tracker["is_running"] = True
+            try:
+                scraping_stats = pipeline.run_scraping_pipeline(pipeline_status_tracker)
+                analysis_stats = pipeline.run_analysis_pipeline(pipeline_status_tracker, **config)
+                final_stats = {**scraping_stats, **analysis_stats, "status": "Completed"}
+                database.add_pipeline_run(final_stats)
+            except Exception as e:
+                print(f"Pipeline failed: {e}")
+                database.add_pipeline_run({"status": f"Failed: {e}"})
+            finally:
+                pipeline_status_tracker["is_running"] = False
+                pipeline_status_tracker["status"] = "Idle"
+                pipeline_status_tracker["progress"] = 0
+                pipeline_status_tracker["total"] = 0
+                pipeline_status_tracker["current_task"] = "N/A"
 
     thread = threading.Thread(target=pipeline_task, args=(app.app_context(), config))
     thread.daemon = True
@@ -187,6 +215,22 @@ def configure_schedule():
         return jsonify({"message": f"Pipeline schedule updated successfully to {new_time} UTC."})
     except Exception as e:
         return jsonify({"error": "Failed to update schedule.", "details": str(e)}), 500
+
+@app.route('/api/pipeline_status', methods=['GET'])
+def get_pipeline_status():
+    """Returns the real-time status of the currently running pipeline."""
+    return jsonify(pipeline_status_tracker)
+
+@app.route('/api/pipeline_last_run', methods=['GET'])
+def get_last_run_stats():
+    """Returns the statistics from the most recently completed pipeline run."""
+    conn = get_db_connection()
+    last_run = conn.execute("SELECT * FROM pipeline_runs ORDER BY run_timestamp DESC LIMIT 1").fetchone()
+    conn.close()
+    if last_run:
+        return jsonify(dict(last_run))
+    else:
+        return jsonify({"message": "No previous pipeline run found."}), 404
 
 @app.route('/api/top_entities', methods=['GET'])
 def get_top_entities():
@@ -311,9 +355,25 @@ def scheduled_pipeline_run():
     """A wrapper function for the scheduler to run the pipeline."""
     with app.app_context():
         print(f"--- Scheduled pipeline run started at {datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC ---")
-        pipeline.run_scraping_pipeline()
-        pipeline.run_analysis_pipeline()
-        print("--- Scheduled pipeline run finished ---")
+        if pipeline_status_tracker["is_running"]:
+            print("Scheduled run skipped: A pipeline is already in progress.")
+            return
+        
+        pipeline_status_tracker["is_running"] = True
+        try:
+            scraping_stats = pipeline.run_scraping_pipeline(pipeline_status_tracker)
+            analysis_stats = pipeline.run_analysis_pipeline(pipeline_status_tracker)
+            final_stats = {**scraping_stats, **analysis_stats, "status": "Completed"}
+            database.add_pipeline_run(final_stats)
+        except Exception as e:
+            print(f"Scheduled pipeline failed: {e}")
+            database.add_pipeline_run({"status": f"Failed: {e}"})
+        finally:
+            pipeline_status_tracker["is_running"] = False
+            pipeline_status_tracker["status"] = "Idle"
+            pipeline_status_tracker["progress"] = 0
+            pipeline_status_tracker["total"] = 0
+            pipeline_status_tracker["current_task"] = "N/A"
 
 scheduler = BackgroundScheduler(daemon=True)
 
