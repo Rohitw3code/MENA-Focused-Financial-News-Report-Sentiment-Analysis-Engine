@@ -17,7 +17,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 
 # --- CONFIGURATION ---
-LLM_PROVIDER = 'groq' # or 'groq'
+LLM_PROVIDER = 'openai' # or 'groq'
 OPENAI_MODEL_NAME = 'gpt-4o-mini' # e.g., 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-4o-mini'
 GROQ_MODEL_NAME = 'llama3-70b-8192' # e.g., 'llama3-8b-8192', 'llama3-70b-8192'
 

@@ -1,75 +1,88 @@
-# Import the 'requests' library, which is a standard for making HTTP requests in Python.
-# If you don't have it installed, you can install it by running: pip install requests
-import requests
-import os # Import the os library to work with file paths
+# main.py
 
-def get_html_content(url):
+import database
+from scrapers import zawya_scraper
+from analysis import sentiment_analyzer
+
+def run_analysis_pipeline():
     """
-    Fetches the HTML content of a given website URL.
-
-    Args:
-        url (str): The URL of the website you want to get the content from.
-
-    Returns:
-        str: The HTML content of the website as a string, or None if the request fails.
+    Executes the analysis part of the data pipeline and tracks total cost.
     """
-    try:
-        # Send an HTTP GET request to the specified URL.
-        # The headers are used to mimic a real browser, which can help avoid being blocked by some websites.
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-
-        # The raise_for_status() method will raise an HTTPError if the HTTP request returned an unsuccessful status code.
-        response.raise_for_status()
-
-        # The 'text' attribute holds the decoded content of the response.
-        # Requests library automatically decodes content from the server.
-        return response.text
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error occurred: {http_err}")
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Connection error occurred: {conn_err}")
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Timeout error occurred: {timeout_err}")
-    except requests.exceptions.RequestException as err:
-        print(f"An unexpected error occurred: {err}")
+    print("\n" + "="*25 + " STEP 3: ANALYZING SENTIMENT " + "="*23)
+    articles_to_analyze = database.get_unanalyzed_articles()
+    sentiments_found_count = 0
+    total_session_cost = 0.0
     
-    return None
-
-def save_to_file(content, filename="output.html"):
-    """
-    Saves the given content to a file with UTF-8 encoding.
-
-    Args:
-        content (str): The string content to save.
-        filename (str): The name of the file to save to.
-    """
-    try:
-        # Open the file in write mode ('w') with UTF-8 encoding to handle all characters.
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(content)
-        # Get the full path of the file for a clear message.
-        full_path = os.path.abspath(filename)
-        print(f"\nSuccessfully saved HTML content to: {full_path}")
-    except IOError as e:
-        print(f"\nError writing to file: {e}")
-
-
-# --- Example Usage ---
-if __name__ == "__main__":
-    # The URL that was causing the error.
-    target_url = "https://www.zawya.com/en/capital-markets/equities/interview-gcc-ipos-are-shielded-from-global-turbulence-but-may-experience-some-delays-jp-morgan-myfdnxuq"
-    
-    print(f"Attempting to fetch HTML content from: {target_url}")
-    
-    # Call the function to get the HTML content.
-    html_content = get_html_content(target_url)
-    
-    # If the content was fetched successfully, save it to a file.
-    if html_content:
-        save_to_file(html_content)
+    if not articles_to_analyze:
+        print("No new articles to analyze for sentiment.")
     else:
-        print("\nFailed to retrieve website content.")
+        print(f"Found {len(articles_to_analyze)} new articles to analyze.")
+        for article in articles_to_analyze:
+            entities_list, usage_stats = sentiment_analyzer.analyze_text_for_sentiment(article['text'])
+            
+            if usage_stats:
+                database.add_usage_log(
+                    article_id=article['id'],
+                    provider=sentiment_analyzer.LLM_PROVIDER,
+                    usage_stats=usage_stats
+                )
+                total_session_cost += usage_stats.get('total_cost_usd', 0.0)
+
+            if entities_list:
+                print(f"-> Found {len(entities_list)} valid entities in article ID {article['id']}.")
+                for entity in entities_list:
+                    # MODIFIED: Call add_sentiment with the new dual sentiment fields
+                    database.add_sentiment(
+                        article_id=article['id'],
+                        entity_name=entity.entity_name,
+                        entity_type=entity.entity_type,
+                        financial_sentiment=entity.financial_sentiment,
+                        overall_sentiment=entity.overall_sentiment,
+                        reasoning=entity.reasoning
+                    )
+                    sentiments_found_count += 1
+            
+    print(f"\nFinished sentiment analysis. Found {sentiments_found_count} new sentiment records.")
+    print(f"\nTotal estimated cost for this session: ${total_session_cost:.6f} USD")
+    
+
+def run_scraping_pipeline():
+    """
+    Executes the scraping part of the data pipeline.
+    """
+    scraper_modules = [zawya_scraper]
+    print("\n" + "="*25 + " STEP 1: SCRAPING LINKS " + "="*25)
+    new_links_found = 0
+    for scraper in scraper_modules:
+        print(f"\nRunning scraper for: {scraper.SOURCE_NAME}")
+        urls = scraper.get_article_urls()
+        if not urls:
+            print(f"No links found for {scraper.SOURCE_NAME}.")
+            continue
+        for url in urls:
+            if database.add_link(url=url, source=scraper.SOURCE_NAME):
+                new_links_found += 1
+    print(f"\nFinished scraping links. Found {new_links_found} new URLs to process.")
+
+    print("\n" + "="*25 + " STEP 2: SCRAPING ARTICLES " + "="*24)
+    links_to_scrape = database.get_unscraped_links()
+    articles_scraped_count = 0
+    if not links_to_scrape:
+        print("No new articles to scrape.")
+    else:
+        print(f"Found {len(links_to_scrape)} new links to scrape articles from.")
+        for link in links_to_scrape[:10]:
+            scraper_to_use = next((s for s in scraper_modules if s.SOURCE_NAME == link['source']), None)
+            if scraper_to_use:
+                article_data = scraper_to_use.scrape_article_content(link['url'])
+                if article_data:
+                    database.add_article(link_id=link['id'], article_data=article_data)
+                    articles_scraped_count += 1
+    print(f"\nFinished scraping articles. Scraped {articles_scraped_count} new articles.")
+
+
+if __name__ == "__main__":
+    database.create_database()
+    run_scraping_pipeline() 
+    run_analysis_pipeline()
+    print("\n" + "="*30 + " PIPELINE COMPLETE " + "="*30)
