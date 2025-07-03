@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { TrendingUp, Search, BarChart3, Globe, ArrowRight, Star, Users, Zap } from 'lucide-react';
+import { TrendingUp, Search, BarChart3, Globe, ArrowRight, Star, Users, Zap, Brain, Target, Shield } from 'lucide-react';
 
 const LandingPage = () => {
   return (
@@ -11,13 +11,13 @@ const LandingPage = () => {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-2">
               <TrendingUp className="h-8 w-8 text-primary-600" />
-              <span className="text-xl font-bold text-gray-900">MENA Financial</span>
+              <span className="text-xl font-bold text-gray-900">MENA Research</span>
             </div>
             <Link
               to="/dashboard"
               className="bg-primary-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-primary-700 transition-colors"
             >
-              Go to Dashboard
+              Start Research
             </Link>
           </div>
         </div>
@@ -29,25 +29,25 @@ const LandingPage = () => {
           <div className="text-center">
             <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
               <span className="bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
-                MENA Financial News
+                MENA Financial
               </span>
               <br />
-              Sentiment Analysis
+              Research Platform
             </h1>
             <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-              Advanced AI-powered sentiment analysis for Middle East & North Africa financial news. 
-              Get real-time insights on market sentiment, company performance, and investment opportunities.
+              Advanced AI-powered research platform for Middle East & North Africa financial markets. 
+              Get comprehensive sentiment analysis, entity summaries, and actionable insights for informed investment decisions.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
                 to="/dashboard"
                 className="bg-primary-600 text-white px-8 py-4 rounded-lg font-medium hover:bg-primary-700 transition-colors flex items-center justify-center space-x-2"
               >
-                <span>Start Analyzing</span>
+                <span>Start Research</span>
                 <ArrowRight className="h-5 w-5" />
               </Link>
               <button className="border border-gray-300 text-gray-700 px-8 py-4 rounded-lg font-medium hover:bg-gray-50 transition-colors">
-                Learn More
+                View Demo
               </button>
             </div>
           </div>
@@ -59,71 +59,71 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Powerful Features
+              Research-Grade Intelligence
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Everything you need to stay ahead in MENA financial markets
+              Professional tools for deep financial market research and analysis
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <div className="bg-gray-50 p-8 rounded-xl hover:bg-gray-100 transition-colors">
               <div className="bg-primary-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-                <Search className="h-6 w-6 text-primary-600" />
+                <Brain className="h-6 w-6 text-primary-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Smart Search</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">AI-Powered Summaries</h3>
               <p className="text-gray-600">
-                Find relevant financial news and sentiment data with our intelligent search system.
+                Get comprehensive AI-generated summaries for any company or entity with structured insights.
               </p>
             </div>
 
             <div className="bg-gray-50 p-8 rounded-xl hover:bg-gray-100 transition-colors">
               <div className="bg-secondary-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-                <BarChart3 className="h-6 w-6 text-secondary-600" />
+                <Search className="h-6 w-6 text-secondary-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Sentiment Analysis</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Advanced Search</h3>
               <p className="text-gray-600">
-                Advanced AI models analyze sentiment and provide actionable insights for each entity.
+                Intelligent search with real-time suggestions, filtering, and comprehensive result analysis.
               </p>
             </div>
 
             <div className="bg-gray-50 p-8 rounded-xl hover:bg-gray-100 transition-colors">
               <div className="bg-accent-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-                <Globe className="h-6 w-6 text-accent-600" />
+                <BarChart3 className="h-6 w-6 text-accent-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">MENA Focus</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Sentiment Analysis</h3>
               <p className="text-gray-600">
-                Specialized coverage of Middle East & North Africa financial markets and companies.
+                Deep sentiment analysis with financial and operational insights for each entity.
               </p>
             </div>
 
             <div className="bg-gray-50 p-8 rounded-xl hover:bg-gray-100 transition-colors">
               <div className="bg-green-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-                <Zap className="h-6 w-6 text-green-600" />
+                <Target className="h-6 w-6 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Real-time Updates</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">MENA Expertise</h3>
               <p className="text-gray-600">
-                Get the latest news and sentiment updates as they happen in the market.
+                Specialized focus on Middle East & North Africa markets with regional expertise.
               </p>
             </div>
 
             <div className="bg-gray-50 p-8 rounded-xl hover:bg-gray-100 transition-colors">
               <div className="bg-purple-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-                <Users className="h-6 w-6 text-purple-600" />
+                <Shield className="h-6 w-6 text-purple-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Multi-Entity Support</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Research Quality</h3>
               <p className="text-gray-600">
-                Track sentiment for companies, cryptocurrencies, and other financial entities.
+                Professional-grade data quality and analysis suitable for institutional research.
               </p>
             </div>
 
             <div className="bg-gray-50 p-8 rounded-xl hover:bg-gray-100 transition-colors">
               <div className="bg-orange-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4">
-                <Star className="h-6 w-6 text-orange-600" />
+                <Zap className="h-6 w-6 text-orange-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Premium Analytics</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Real-time Updates</h3>
               <p className="text-gray-600">
-                Professional-grade analytics and reporting tools for informed decision making.
+                Live data feeds and real-time sentiment updates for dynamic market analysis.
               </p>
             </div>
           </div>
@@ -134,16 +134,16 @@ const LandingPage = () => {
       <section className="py-20 bg-gradient-to-r from-primary-600 to-secondary-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-            Ready to Get Started?
+            Ready to Start Your Research?
           </h2>
           <p className="text-xl text-primary-100 mb-8 max-w-2xl mx-auto">
-            Join thousands of financial professionals who trust our platform for MENA market insights.
+            Join financial professionals who rely on our platform for comprehensive MENA market research.
           </p>
           <Link
             to="/dashboard"
             className="bg-white text-primary-600 px-8 py-4 rounded-lg font-medium hover:bg-gray-100 transition-colors inline-flex items-center space-x-2"
           >
-            <span>Access Dashboard</span>
+            <span>Access Research Platform</span>
             <ArrowRight className="h-5 w-5" />
           </Link>
         </div>
@@ -155,10 +155,10 @@ const LandingPage = () => {
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center space-x-2 mb-4 md:mb-0">
               <TrendingUp className="h-8 w-8 text-primary-400" />
-              <span className="text-xl font-bold">MENA Financial</span>
+              <span className="text-xl font-bold">MENA Research</span>
             </div>
             <p className="text-gray-400 text-center md:text-right">
-              © 2025 MENA Financial News Dashboard. All rights reserved.
+              © 2025 MENA Financial Research Platform. All rights reserved.
             </p>
           </div>
         </div>

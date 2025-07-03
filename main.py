@@ -71,7 +71,7 @@ def run_scraping_pipeline():
         print("No new articles to scrape.")
     else:
         print(f"Found {len(links_to_scrape)} new links to scrape articles from.")
-        for link in links_to_scrape[:10]:
+        for link in links_to_scrape:
             scraper_to_use = next((s for s in scraper_modules if s.SOURCE_NAME == link['source']), None)
             if scraper_to_use:
                 article_data = scraper_to_use.scrape_article_content(link['url'])

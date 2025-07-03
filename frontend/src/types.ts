@@ -31,3 +31,11 @@ export interface UsageStat {
   total_cost_usd: number;
   timestamp: string;
 }
+
+export interface EntitySummary {
+  positive_financial: string[];
+  negative_financial: string[];
+  positive_overall: string[];
+  negative_overall: string[];
+  final_summary: string;
+}
