@@ -1,5 +1,5 @@
 {
-  "name": "mena-financial-dashboard",
+  "name": "financial-news-sentiment-website",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,7 +13,9 @@
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.22.3"
+    "react-router-dom": "^6.8.1",
+    "recharts": "^2.12.2",
+    "framer-motion": "^10.18.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
