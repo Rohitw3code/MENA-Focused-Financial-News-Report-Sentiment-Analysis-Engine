@@ -1,31 +1,24 @@
 # pipeline.py
 
 import database
-from scrapers import zawya_scraper
+from scrapers import zawya_scraper, menabytes_scraper # Import the new scraper
 from analysis.sentiment_analyzer import SentimentAnalyzer
 
 def run_scraping_pipeline(status_tracker):
     """
     Executes the scraping part of the data pipeline and updates a status tracker.
-    
-    This function performs two main steps:
-    1. Scrapes the main news page for a list of article URLs.
-    2. For each new URL, it scrapes the detailed content of the article.
-    
-    Args:
-        status_tracker (dict): A dictionary to update with the real-time status of the process.
-        
-    Returns:
-        dict: A dictionary containing statistics about the scraping run.
     """
     # --- Step 1: Scrape Links ---
     status_tracker['status'] = 'Scraping links'
     status_tracker['progress'] = 0
-    status_tracker['total'] = 1 # Represents one phase
+    status_tracker['total'] = 1 
     status_tracker['current_task'] = 'Fetching article lists from sources.'
+    status_tracker['message'] = ''
     
-    scraper_modules = [zawya_scraper]
+    # MODIFIED: Add the new scraper to the list of modules to run
+    scraper_modules = [zawya_scraper, menabytes_scraper]
     new_links_found = 0
+    
     for scraper in scraper_modules:
         print(f"\nRunning scraper for: {scraper.SOURCE_NAME}")
         urls = scraper.get_article_urls()
@@ -48,8 +41,10 @@ def run_scraping_pipeline(status_tracker):
     articles_scraped_count = 0
     if not links_to_scrape:
         status_tracker['current_task'] = 'No new articles to scrape.'
+        status_tracker['message'] = 'The link scraping phase did not find any new article URLs that are not already in the database.'
     else:
         for i, link in enumerate(links_to_scrape):
+            # Find the correct scraper based on the source stored in the database
             scraper_to_use = next((s for s in scraper_modules if s.SOURCE_NAME == link['source']), None)
             if scraper_to_use:
                 article_data = scraper_to_use.scrape_article_content(link['url'])
@@ -66,21 +61,7 @@ def run_scraping_pipeline(status_tracker):
 def run_analysis_pipeline(status_tracker, provider=None, model_name=None, openai_api_key=None, groq_api_key=None):
     """
     Executes the analysis part of the pipeline and updates a status tracker.
-    
-    This function fetches all unanalyzed articles from the database, passes them
-    to the AI for sentiment analysis, and stores the results.
-    
-    Args:
-        status_tracker (dict): A dictionary to update with the real-time status.
-        provider (str, optional): The AI provider to use ('openai' or 'groq').
-        model_name (str, optional): The specific model name to use.
-        openai_api_key (str, optional): An OpenAI API key.
-        groq_api_key (str, optional): A Groq API key.
-        
-    Returns:
-        dict: A dictionary containing statistics about the analysis run.
     """
-    # Instantiate the analyzer with the provided (or default) configuration
     analyzer = SentimentAnalyzer(
         provider=provider,
         model_name=model_name,
@@ -92,12 +73,14 @@ def run_analysis_pipeline(status_tracker, provider=None, model_name=None, openai
     status_tracker['status'] = 'Analyzing sentiment'
     status_tracker['progress'] = 0
     status_tracker['total'] = len(articles_to_analyze)
+    status_tracker['message'] = ''
     
     sentiments_found_count = 0
     total_session_cost = 0.0
     
     if not articles_to_analyze:
         status_tracker['current_task'] = 'No new articles to analyze.'
+        status_tracker['message'] = 'The article scraping phase did not find any new content that requires sentiment analysis.'
     else:
         for i, article in enumerate(articles_to_analyze):
             status_tracker['current_task'] = f"Analyzing article ID: {article['id']}"
