@@ -35,7 +35,7 @@ def create_database():
         FOREIGN KEY (link_id) REFERENCES links (id)
     );
     ''')
-    
+
     # Table 3: Sentiment analysis results for each entity in an article
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS sentiments (
@@ -208,6 +208,26 @@ def get_unanalyzed_articles():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT a.id, a.cleaned_text FROM articles a LEFT JOIN sentiments s ON a.id = s.article_id WHERE s.id IS NULL AND a.cleaned_text IS NOT NULL AND a.cleaned_text != "N/A" GROUP BY a.id')
+    articles = [{'id': row[0], 'text': row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return articles
+
+def mark_article_as_analyzed(article_id):
+    """Marks a single article as analyzed by setting the flag to 1."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE articles SET is_analyzed = 1 WHERE id = ?", (article_id,))
+    conn.commit()
+    conn.close()
+
+def get_unanalyzed_articles():
+    """
+    MODIFIED: Fetches articles where the is_analyzed flag is 0 (False).
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # This query is now simpler and more efficient
+    cursor.execute('SELECT id, cleaned_text FROM articles WHERE is_analyzed = 0 AND cleaned_text IS NOT NULL AND cleaned_text != "N/A"')
     articles = [{'id': row[0], 'text': row[1]} for row in cursor.fetchall()]
     conn.close()
     return articles

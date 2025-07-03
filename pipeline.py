@@ -61,6 +61,7 @@ def run_scraping_pipeline(status_tracker):
 def run_analysis_pipeline(status_tracker, provider=None, model_name=None, openai_api_key=None, groq_api_key=None):
     """
     Executes the analysis part of the pipeline and updates a status tracker.
+    This version includes a fix to prevent re-analyzing articles with no entities.
     """
     analyzer = SentimentAnalyzer(
         provider=provider,
@@ -105,6 +106,13 @@ def run_analysis_pipeline(status_tracker, provider=None, model_name=None, openai
                         reasoning=entity.reasoning
                     )
                     sentiments_found_count += 1
+            
+            # --- KEY IMPROVEMENT ---
+            # Mark the article as analyzed, regardless of whether entities were found.
+            # This requires the corresponding `mark_article_as_analyzed` function in database.py
+            # and for `get_unanalyzed_articles` to use the `is_analyzed` flag.
+            database.mark_article_as_analyzed(article['id'])
+            
             status_tracker['progress'] = i + 1
             
     print(f"\nFinished sentiment analysis. Found {sentiments_found_count} new sentiment records.")
