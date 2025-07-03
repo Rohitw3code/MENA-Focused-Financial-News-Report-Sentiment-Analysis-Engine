@@ -161,8 +161,8 @@ def trigger_pipeline():
     data = request.get_json(silent=True) or {}
     password = data.get("password")
 
-    # if not password or password != PIPELINE_PASSWORD:
-    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+    if not password or password != PIPELINE_PASSWORD:
+        return jsonify({"error": "Unauthorized. A valid password is required."}), 401
     
     config = {
         "provider": data.get("provider"),
@@ -202,8 +202,8 @@ def configure_schedule():
     password = data.get("password")
     new_time = data.get("schedule_time")
 
-    # if not password or password != PIPELINE_PASSWORD:
-    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+    if not password or password != PIPELINE_PASSWORD:
+        return jsonify({"error": "Unauthorized. A valid password is required."}), 401
 
     if not new_time or not re.match(r'^([01]\d|2[0-3]):([0-5]\d)$', new_time):
         return jsonify({"error": "Invalid time format. Please use 'HH:MM'."}), 400
@@ -328,7 +328,7 @@ def get_articles():
         article_id = row['article_id']
         if article_id not in articles: articles[article_id] = {"id": article_id, "title": row['title'], "url": row['url'], "author": row['author'], "publication_date": row['publication_date'], "cleaned_text": row['cleaned_text'], "sentiments": []}
         if row['sentiment_id']: articles[article_id]['sentiments'].append({"entity_name": row['entity_name'], "entity_type": row['entity_type'], "financial_sentiment": row['financial_sentiment'], "overall_sentiment": row['overall_sentiment'], "reasoning": row['reasoning']})
-    return jsonify(list(articles.values()))
+    return jsonify(list(articles.values())[:limit])
 
 @app.route('/api/entities', methods=['GET'])
 def get_entities():

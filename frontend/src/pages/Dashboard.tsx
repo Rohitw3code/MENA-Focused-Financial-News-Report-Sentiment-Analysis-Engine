@@ -1,22 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, TrendingUp, TrendingDown, Minus, Users, FileText, BarChart3, Brain, ChevronDown, Building2, Bitcoin, Coins } from 'lucide-react';
+import { Search, Filter, TrendingUp, TrendingDown, Minus, Users, FileText, BarChart3, Brain, ChevronDown, Building2, Bitcoin, Coins, BookOpen, RefreshCw, ChevronRight } from 'lucide-react';
 import { useApi } from '../contexts/ApiContext';
 import SearchBar from '../components/SearchBar';
 import FilterPanel from '../components/FilterPanel';
 import EntityCard from '../components/EntityCard';
 import StatsCard from '../components/StatsCard';
+import ArticleCard from '../components/ArticleCard';
+import ArticleModal from '../components/ArticleModal';
 
 const Dashboard: React.FC = () => {
   const [entities, setEntities] = useState<any[]>([]);
   const [articles, setArticles] = useState<any[]>([]);
+  const [allArticles, setAllArticles] = useState<any[]>([]);
   const [topEntities, setTopEntities] = useState<any[]>([]);
   const [aiSummary, setAiSummary] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [articlesLoading, setArticlesLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [selectedArticle, setSelectedArticle] = useState<any>(null);
+  const [showArticleModal, setShowArticleModal] = useState(false);
+  const [articlesPage, setArticlesPage] = useState(1);
+  const [hasMoreArticles, setHasMoreArticles] = useState(true);
+  const [articleFilters, setArticleFilters] = useState({
+    entity_name: '',
+    entity_type: '',
+    financial_sentiment: '',
+    overall_sentiment: ''
+  });
   const [filters, setFilters] = useState({
     entityType: '',
     sentimentType: 'overall',
@@ -26,9 +40,12 @@ const Dashboard: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const { fetchData } = useApi();
 
+  const ARTICLES_PER_PAGE = 6;
+
   useEffect(() => {
     loadDashboardData();
     loadAISummary();
+    loadArticles(1, true);
   }, []);
 
   useEffect(() => {
@@ -49,9 +66,8 @@ const Dashboard: React.FC = () => {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      // Load all entities instead of limiting to 10
       const [entitiesData, articlesData, topEntitiesData] = await Promise.all([
-        fetchData('/entities'), // Remove limit to get all entities
+        fetchData('/entities'),
         fetchData('/articles', { limit: 20 }),
         fetchData('/top_entities', { sentiment_type: 'overall', sentiment: 'positive', limit: 10 })
       ]);
@@ -66,8 +82,52 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const loadArticles = async (page: number, reset: boolean = false) => {
+    try {
+      setArticlesLoading(true);
+      const params = {
+        limit: ARTICLES_PER_PAGE,
+        ...articleFilters
+      };
+      
+      // Remove empty filters
+      Object.keys(params).forEach(key => {
+        if (params[key as keyof typeof params] === '') {
+          delete params[key as keyof typeof params];
+        }
+      });
+
+      const newArticles = await fetchData('/articles', params);
+      
+      if (reset) {
+        setAllArticles(newArticles);
+        setArticlesPage(1);
+      } else {
+        setAllArticles(prev => [...prev, ...newArticles]);
+      }
+      
+      setHasMoreArticles(newArticles.length === ARTICLES_PER_PAGE);
+    } catch (error) {
+      console.error('Error loading articles:', error);
+    } finally {
+      setArticlesLoading(false);
+    }
+  };
+
+  const loadMoreArticles = () => {
+    if (!articlesLoading && hasMoreArticles) {
+      const nextPage = articlesPage + 1;
+      setArticlesPage(nextPage);
+      loadArticles(nextPage, false);
+    }
+  };
+
+  const handleArticleFilterChange = (newFilters: any) => {
+    setArticleFilters(newFilters);
+    loadArticles(1, true);
+  };
+
   const loadAISummary = async () => {
-    // Load AI summary without animation - just set it directly
     const summaryText = "Based on the latest market analysis, we're seeing mixed sentiment across major sectors. Technology companies show resilient performance with 68% positive sentiment, while cryptocurrency markets remain volatile with increased regulatory scrutiny. Energy sector demonstrates strong fundamentals driven by sustainable initiatives. Banking institutions face headwinds from interest rate uncertainties, though major players maintain stable outlooks. Overall market sentiment leans cautiously optimistic with investors focusing on companies with strong fundamentals and clear growth strategies.";
     setAiSummary(summaryText);
   };
@@ -116,6 +176,11 @@ const Dashboard: React.FC = () => {
     setShowSuggestions(false);
   };
 
+  const handleReadMore = (article: any) => {
+    setSelectedArticle(article);
+    setShowArticleModal(true);
+  };
+
   const filteredEntities = getFilteredEntities();
 
   return (
@@ -145,7 +210,7 @@ const Dashboard: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* AI Summary Section - Smaller with News Gradient */}
+        {/* AI Summary Section
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -166,9 +231,9 @@ const Dashboard: React.FC = () => {
               </p>
             </div>
           </div>
-        </motion.div>
+        </motion.div> */}
 
-        {/* Stats Cards with Gradients */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {dashboardStats.map((stat, index) => (
             <motion.div
@@ -195,9 +260,9 @@ const Dashboard: React.FC = () => {
 
         {/* Main Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Left Side - API Data and Sentiment Overview */}
+          {/* Left Side - Entities and Articles */}
           <div className="lg:col-span-3 space-y-8">
-            {/* Compact Sentiment Overview with Gradient */}
+            {/* Sentiment Overview */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -228,7 +293,7 @@ const Dashboard: React.FC = () => {
               </div>
             </motion.div>
 
-            {/* Enhanced Search and Filter Section - Bigger Search with Gradient */}
+            {/* Enhanced Search and Filter Section */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -236,7 +301,6 @@ const Dashboard: React.FC = () => {
               className="bg-card-gradient rounded-xl shadow-card border border-white/50 p-6"
             >
               <div className="flex flex-col lg:flex-row gap-6">
-                {/* Bigger Search Bar with Gradient */}
                 <div className="flex-1 lg:flex-[2]">
                   <label className="block text-sm font-bold text-slate-700 mb-3">
                     🔍 Search Financial Entities
@@ -255,7 +319,6 @@ const Dashboard: React.FC = () => {
                       />
                     </div>
                     
-                    {/* Auto-suggestions with Gradient */}
                     <AnimatePresence>
                       {showSuggestions && suggestions.length > 0 && (
                         <motion.div
@@ -279,7 +342,6 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Filter Buttons with Gradients */}
                 <div className="lg:w-auto lg:flex-1">
                   <label className="block text-sm font-bold text-slate-700 mb-3">Filter by Type</label>
                   <div className="flex flex-wrap gap-3">
@@ -312,7 +374,6 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Popular Entities from API with Gradient Pills */}
               <div className="mt-6">
                 <h4 className="text-sm font-bold text-slate-700 mb-3">🔥 Top Performing Entities</h4>
                 <div className="flex flex-wrap gap-2">
@@ -410,11 +471,137 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </motion.div>
+
+            {/* Articles Reading Section */}
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.8 }}
+              className="bg-card-gradient rounded-xl shadow-card border border-white/50 p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-gradient-to-r from-emerald-100 to-green-100 rounded-lg">
+                    <BookOpen className="h-6 w-6 text-emerald-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+                    Latest Articles
+                    <span className="text-slate-500 ml-2 text-lg">({allArticles.length})</span>
+                  </h2>
+                </div>
+                
+                <button
+                  onClick={() => loadArticles(1, true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-emerald-100 to-green-100 hover:from-emerald-200 hover:to-green-200 text-emerald-700 rounded-xl transition-all duration-200 shadow-sm"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {/* Article Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Entity Name</label>
+                  <input
+                    type="text"
+                    value={articleFilters.entity_name}
+                    onChange={(e) => handleArticleFilterChange({ ...articleFilters, entity_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Search entity..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Entity Type</label>
+                  <select
+                    value={articleFilters.entity_type}
+                    onChange={(e) => handleArticleFilterChange({ ...articleFilters, entity_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">All Types</option>
+                    <option value="company">Companies</option>
+                    <option value="cryptocurrency">Cryptocurrencies</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Financial Sentiment</label>
+                  <select
+                    value={articleFilters.financial_sentiment}
+                    onChange={(e) => handleArticleFilterChange({ ...articleFilters, financial_sentiment: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">All Sentiments</option>
+                    <option value="positive">Positive</option>
+                    <option value="negative">Negative</option>
+                    <option value="neutral">Neutral</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Overall Sentiment</label>
+                  <select
+                    value={articleFilters.overall_sentiment}
+                    onChange={(e) => handleArticleFilterChange({ ...articleFilters, overall_sentiment: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">All Sentiments</option>
+                    <option value="positive">Positive</option>
+                    <option value="negative">Negative</option>
+                    <option value="neutral">Neutral</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Articles Grid */}
+              {allArticles.length === 0 && !articlesLoading ? (
+                <div className="text-center py-12">
+                  <div className="text-slate-400 mb-4">
+                    <BookOpen className="h-12 w-12 mx-auto" />
+                  </div>
+                  <h3 className="text-lg font-medium text-slate-900 mb-2">No articles found</h3>
+                  <p className="text-slate-600">Try adjusting your filters or check back later for new content.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {allArticles.map((article, index) => (
+                      <ArticleCard
+                        key={article.id}
+                        article={article}
+                        index={index}
+                        onReadMore={handleReadMore}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Load More Button */}
+                  {hasMoreArticles && (
+                    <div className="text-center mt-8">
+                      <button
+                        onClick={loadMoreArticles}
+                        disabled={articlesLoading}
+                        className="inline-flex items-center space-x-2 px-6 py-3 bg-primary-gradient hover:shadow-glow text-white font-semibold rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {articlesLoading ? (
+                          <>
+                            <RefreshCw className="h-5 w-5 animate-spin" />
+                            <span>Loading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Load More Articles</span>
+                            <ChevronRight className="h-5 w-5" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
           </div>
 
-          {/* Right Side - Quick Stats with Gradients */}
+          {/* Right Side - Quick Stats */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Quick Stats */}
             <motion.div
               initial={{ x: 20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -444,12 +631,11 @@ const Dashboard: React.FC = () => {
                     <FileText className="h-5 w-5 text-emerald-600" />
                     <span className="text-slate-700 font-medium">Total Articles</span>
                   </div>
-                  <span className="font-bold text-emerald-600 text-lg">{articles.length}</span>
+                  <span className="font-bold text-emerald-600 text-lg">{allArticles.length}</span>
                 </div>
               </div>
             </motion.div>
 
-            {/* Market Trends with Gradient */}
             <motion.div
               initial={{ x: 20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -492,6 +678,13 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Article Modal */}
+      <ArticleModal
+        article={selectedArticle}
+        isOpen={showArticleModal}
+        onClose={() => setShowArticleModal(false)}
+      />
     </div>
   );
 };
