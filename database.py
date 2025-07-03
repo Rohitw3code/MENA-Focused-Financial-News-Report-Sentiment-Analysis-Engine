@@ -31,9 +31,11 @@ def create_database():
         publication_date TEXT,
         raw_text TEXT,
         cleaned_text TEXT,
+        is_analyzed INTEGER DEFAULT 0, -- 0 for False (default), 1 for True
         FOREIGN KEY (link_id) REFERENCES links (id)
-    )''')
-
+    );
+    ''')
+    
     # Table 3: Sentiment analysis results for each entity in an article
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS sentiments (
