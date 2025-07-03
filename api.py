@@ -109,6 +109,16 @@ def home():
                 "method": "GET",
                 "description": "Get articles for an entity, grouped by sentiment categories.",
                 "params": ["entity_name", "entity_type"]
+            },
+            "/api/sentiment_over_time": {
+                "method": "GET",
+                "description": "Get an entity's sentiment trend over time, formatted for graphing.",
+                "params": ["entity_name"]
+            },
+            "/api/top_entities": {
+                "method": "GET",
+                "description": "Get top entities ranked by sentiment count.",
+                "params": ["sentiment_type (financial or overall)", "sentiment (positive, negative, neutral)", "order (asc or desc)", "limit"]
             }
         }
     })
@@ -121,7 +131,6 @@ def trigger_pipeline():
     """
     data = request.get_json(silent=True) or {}
     
-    # Extract optional configuration from the request body
     config = {
         "provider": data.get("provider"),
         "model_name": data.get("model_name"),
@@ -137,12 +146,98 @@ def trigger_pipeline():
             pipeline.run_analysis_pipeline(**config)
             print("--- Background pipeline finished ---")
 
-    # Run the pipeline in a background thread to avoid blocking the API
     thread = threading.Thread(target=pipeline_task, args=(app.app_context(), config))
     thread.daemon = True
     thread.start()
 
     return jsonify({"message": "Pipeline triggered successfully. It will run in the background."}), 202
+
+
+# NEW ENDPOINT: /api/top_entities
+@app.route('/api/top_entities', methods=['GET'])
+def get_top_entities():
+    """
+    Returns a ranked list of entities based on the count of a specific sentiment.
+    """
+    sentiment_type = request.args.get('sentiment_type', 'overall')
+    sentiment = request.args.get('sentiment', 'positive')
+    order = request.args.get('order', 'desc')
+    limit = request.args.get('limit', 10, type=int)
+
+    # Validate parameters
+    if sentiment_type not in ['financial', 'overall']:
+        return jsonify({"error": "Invalid 'sentiment_type'. Choose 'financial' or 'overall'."}), 400
+    if sentiment not in ['positive', 'negative', 'neutral']:
+        return jsonify({"error": "Invalid 'sentiment'. Choose 'positive', 'negative', or 'neutral'."}), 400
+    if order.upper() not in ['ASC', 'DESC']:
+        return jsonify({"error": "Invalid 'order'. Choose 'asc' or 'desc'."}), 400
+
+    sentiment_column = f"{sentiment_type}_sentiment"
+
+    conn = get_db_connection()
+    query = f"""
+        SELECT
+            entity_name,
+            entity_type,
+            COUNT(*) as sentiment_count
+        FROM sentiments
+        WHERE {sentiment_column} = ?
+        GROUP BY entity_name, entity_type
+        ORDER BY sentiment_count {order}
+        LIMIT ?
+    """
+    
+    cursor = conn.execute(query, (sentiment, limit))
+    rows = cursor.fetchall()
+    conn.close()
+
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route('/api/sentiment_over_time', methods=['GET'])
+def get_sentiment_over_time():
+    """
+    For a given entity, returns its sentiment scores over time, formatted for graphing.
+    Sentiments are mapped to numerical values: positive=1, neutral=0, negative=-1.
+    """
+    entity_name = request.args.get('entity_name')
+    if not entity_name:
+        return jsonify({"error": "An 'entity_name' query parameter is required."}), 400
+
+    conn = get_db_connection()
+    query = """
+        SELECT
+            a.publication_date,
+            s.financial_sentiment,
+            s.overall_sentiment
+        FROM sentiments s
+        JOIN articles a ON s.article_id = a.id
+        WHERE s.entity_name LIKE ?
+        ORDER BY a.publication_date ASC
+    """
+    rows = conn.execute(query, (f"%{entity_name}%",)).fetchall()
+    conn.close()
+
+    if not rows:
+        return jsonify({"error": f"No sentiment data found for entity: {entity_name}"}), 404
+
+    def get_score(sentiment):
+        if sentiment == 'positive': return 1
+        elif sentiment == 'negative': return -1
+        return 0
+
+    financial_trend = []
+    overall_trend = []
+    for row in rows:
+        date = row['publication_date']
+        financial_trend.append([date, get_score(row['financial_sentiment'])])
+        overall_trend.append([date, get_score(row['overall_sentiment'])])
+
+    return jsonify({
+        "entity_name": entity_name,
+        "financial_sentiment_trend": financial_trend,
+        "overall_sentiment_trend": overall_trend
+    })
 
 
 @app.route('/api/entity_articles_by_sentiment', methods=['GET'])
@@ -158,11 +253,7 @@ def get_entity_articles_by_sentiment():
         return jsonify({"error": "Both 'entity_name' and 'entity_type' query parameters are required."}), 400
 
     conn = get_db_connection()
-    query = """
-        SELECT a.title, a.url, s.reasoning, s.financial_sentiment, s.overall_sentiment
-        FROM sentiments s JOIN articles a ON s.article_id = a.id
-        WHERE s.entity_name LIKE ? AND s.entity_type = ?
-    """
+    query = "SELECT a.title, a.url, s.reasoning, s.financial_sentiment, s.overall_sentiment FROM sentiments s JOIN articles a ON s.article_id = a.id WHERE s.entity_name LIKE ? AND s.entity_type = ?"
     rows = conn.execute(query, (f"%{entity_name}%", entity_type)).fetchall()
     conn.close()
 
