@@ -3,7 +3,6 @@
 import requests
 from bs4 import BeautifulSoup
 
-# Define the source name, which helps in merging data from multiple scrapers
 SOURCE_NAME = "zawya.com"
 BASE_URL = "https://www.zawya.com"
 
@@ -25,7 +24,6 @@ def get_article_urls():
                 full_link = href if href.startswith('http') else BASE_URL + href
                 links.append(full_link)
         
-        # Return unique links
         return list(set(links))
     except requests.exceptions.RequestException as e:
         print(f"Error fetching article list from Zawya: {e}")
@@ -33,7 +31,7 @@ def get_article_urls():
 
 def scrape_article_content(url):
     """
-    Scrapes content and metadata, providing both raw and cleaned text. - MODIFIED
+    MODIFIED: Scrapes content and metadata, but no longer includes raw_html.
     """
     print(f"Scraping article content from: {url}")
     try:
@@ -41,7 +39,6 @@ def scrape_article_content(url):
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
 
-        raw_html = response.text
         soup = BeautifulSoup(response.content, 'lxml')
 
         title = soup.find('h1', class_='article-title').text.strip() if soup.find('h1', class_='article-title') else "N/A"
@@ -52,24 +49,21 @@ def scrape_article_content(url):
         article_body_div = soup.find('div', class_='article-body')
         
         if article_body_div:
-            # 1. Get raw, unprocessed text from the entire article container
             raw_text = article_body_div.get_text(separator='\n', strip=True)
-            
-            # 2. Get cleaned, preprocessed text specifically from paragraphs for AI analysis
             paragraphs = article_body_div.find_all('p')
             cleaned_text = '\n'.join([p.text.strip() for p in paragraphs])
         else:
             raw_text = "N/A"
             cleaned_text = "N/A"
 
+        # MODIFIED: Removed 'raw_html' from the returned dictionary
         return {
             'url': url,
             'title': title,
             'publication_date': date,
             'author': author,
-            'raw_html': raw_html,
-            'raw_text': raw_text,          # New field with raw text
-            'cleaned_text': cleaned_text   # Cleaned text for analysis
+            'raw_text': raw_text,
+            'cleaned_text': cleaned_text
         }
     except requests.exceptions.RequestException as e:
         print(f"Could not fetch article {url}. Error: {e}")

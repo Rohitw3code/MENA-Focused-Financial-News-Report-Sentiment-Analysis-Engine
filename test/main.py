@@ -8,48 +8,41 @@ def run_analysis_pipeline():
     """
     Executes the analysis part of the data pipeline and tracks total cost.
     """
-    # =================================================================================
-    # STEP 3: ANALYZE SENTIMENT
-    # =================================================================================
     print("\n" + "="*25 + " STEP 3: ANALYZING SENTIMENT " + "="*23)
     articles_to_analyze = database.get_unanalyzed_articles()
     sentiments_found_count = 0
-    total_session_cost = 0.0  # Initialize total cost for this session
+    total_session_cost = 0.0
     
     if not articles_to_analyze:
         print("No new articles to analyze for sentiment.")
     else:
         print(f"Found {len(articles_to_analyze)} new articles to analyze.")
         for article in articles_to_analyze:
-            # Unpack the tuple returned by the function (entities_list, usage_stats)
             entities_list, usage_stats = sentiment_analyzer.analyze_text_for_sentiment(article['text'])
             
-            # Log usage data and accumulate cost if any was returned
             if usage_stats:
                 database.add_usage_log(
                     article_id=article['id'],
                     provider=sentiment_analyzer.LLM_PROVIDER,
                     usage_stats=usage_stats
                 )
-                # Add the cost of this call to the session total
                 total_session_cost += usage_stats.get('total_cost_usd', 0.0)
 
-            # Process the list of entities if it's not empty
             if entities_list:
                 print(f"-> Found {len(entities_list)} valid entities in article ID {article['id']}.")
-                # Loop over the entities_list
                 for entity in entities_list:
+                    # MODIFIED: Call add_sentiment with the new dual sentiment fields
                     database.add_sentiment(
                         article_id=article['id'],
                         entity_name=entity.entity_name,
                         entity_type=entity.entity_type,
-                        sentiment=entity.sentiment,
+                        financial_sentiment=entity.financial_sentiment,
+                        overall_sentiment=entity.overall_sentiment,
                         reasoning=entity.reasoning
                     )
                     sentiments_found_count += 1
             
     print(f"\nFinished sentiment analysis. Found {sentiments_found_count} new sentiment records.")
-    # Display the total accumulated cost for the session
     print(f"\nTotal estimated cost for this session: ${total_session_cost:.6f} USD")
     
 
@@ -58,10 +51,6 @@ def run_scraping_pipeline():
     Executes the scraping part of the data pipeline.
     """
     scraper_modules = [zawya_scraper]
-    
-    # =================================================================================
-    # STEP 1: SCRAPE LINKS
-    # =================================================================================
     print("\n" + "="*25 + " STEP 1: SCRAPING LINKS " + "="*25)
     new_links_found = 0
     for scraper in scraper_modules:
@@ -75,9 +64,6 @@ def run_scraping_pipeline():
                 new_links_found += 1
     print(f"\nFinished scraping links. Found {new_links_found} new URLs to process.")
 
-    # =================================================================================
-    # STEP 2: SCRAPE ARTICLES
-    # =================================================================================
     print("\n" + "="*25 + " STEP 2: SCRAPING ARTICLES " + "="*24)
     links_to_scrape = database.get_unscraped_links()
     articles_scraped_count = 0
@@ -96,17 +82,7 @@ def run_scraping_pipeline():
 
 
 if __name__ == "__main__":
-    # --- INITIALIZATION ---
-    # This must be the first step to ensure the database and tables exist.
     database.create_database()
-    
-    # --- EXECUTION ---
-    # To keep the main function clean, scraping and analysis are separated.
-    
-    # You can comment this out if you don't need to scrape for new articles every time.
     run_scraping_pipeline() 
-    
-    # Run the analysis pipeline on the scraped articles.
     run_analysis_pipeline()
-
     print("\n" + "="*30 + " PIPELINE COMPLETE " + "="*30)

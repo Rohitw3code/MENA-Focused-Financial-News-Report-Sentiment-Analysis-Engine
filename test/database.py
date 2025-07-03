@@ -10,7 +10,7 @@ def create_database():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # Table 1: Links
+    # Tables 1: links (Unchanged)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS links (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,8 +18,8 @@ def create_database():
         source_website TEXT NOT NULL,
         scraped_date TEXT NOT NULL
     )''')
-
-    # Table 2: Articles
+    
+    # MODIFIED: Table 2: articles - Removed 'raw_html' column
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS articles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,25 +28,25 @@ def create_database():
         title TEXT,
         author TEXT,
         publication_date TEXT,
-        raw_html TEXT,
         raw_text TEXT,
         cleaned_text TEXT,
         FOREIGN KEY (link_id) REFERENCES links (id)
     )''')
 
-    # Table 3: Sentiments
+    # Table 3: sentiments (Unchanged)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS sentiments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         article_id INTEGER NOT NULL,
         entity_name TEXT NOT NULL,
         entity_type TEXT NOT NULL,
-        sentiment TEXT NOT NULL,
+        financial_sentiment TEXT NOT NULL,
+        overall_sentiment TEXT NOT NULL,
         reasoning TEXT,
         FOREIGN KEY (article_id) REFERENCES articles (id)
     )''')
     
-    # NEW TABLE: Usage Logs
+    # Table 4: usage_logs (Unchanged)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS usage_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,8 +64,43 @@ def create_database():
     conn.close()
     print("Database initialized successfully.")
 
+
+def add_article(link_id, article_data):
+    """MODIFIED: Adds a scraped article to the database without raw_html."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO articles (link_id, url, title, author, publication_date, raw_text, cleaned_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            link_id,
+            article_data['url'],
+            article_data['title'],
+            article_data['author'],
+            article_data['publication_date'],
+            article_data['raw_text'],
+            article_data['cleaned_text']
+        ))
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+# --- Other functions (unchanged) ---
+def add_sentiment(article_id, entity_name, entity_type, financial_sentiment, overall_sentiment, reasoning):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO sentiments (article_id, entity_name, entity_type, financial_sentiment, overall_sentiment, reasoning) VALUES (?, ?, ?, ?, ?, ?)",
+        (article_id, entity_name, entity_type, financial_sentiment, overall_sentiment, reasoning)
+    )
+    conn.commit()
+    conn.close()
+
 def add_link(url, source):
-    """Adds a new link to the database, ignoring duplicates."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
@@ -78,44 +113,7 @@ def add_link(url, source):
     finally:
         conn.close()
 
-def add_article(link_id, article_data):
-    """Adds a scraped article to the database."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO articles (link_id, url, title, author, publication_date, raw_html, raw_text, cleaned_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            link_id,
-            article_data['url'],
-            article_data['title'],
-            article_data['author'],
-            article_data['publication_date'],
-            article_data['raw_html'],
-            article_data['raw_text'],
-            article_data['cleaned_text']
-        ))
-        conn.commit()
-        return cursor.lastrowid
-    except sqlite3.IntegrityError:
-        return None
-    finally:
-        conn.close()
-
-def add_sentiment(article_id, entity_name, entity_type, sentiment, reasoning):
-    """Adds an entity sentiment record to the database."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO sentiments (article_id, entity_name, entity_type, sentiment, reasoning) VALUES (?, ?, ?, ?, ?)",
-        (article_id, entity_name, entity_type, sentiment, reasoning)
-    )
-    conn.commit()
-    conn.close()
-
 def add_usage_log(article_id, provider, usage_stats):
-    """Adds a new usage log entry to the database."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -135,7 +133,6 @@ def add_usage_log(article_id, provider, usage_stats):
     conn.close()
 
 def get_unscraped_links():
-    """Fetches links that have not yet been scraped and stored in the articles table."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT l.id, l.url, l.source_website FROM links l LEFT JOIN articles a ON l.id = a.link_id WHERE a.id IS NULL')
@@ -144,7 +141,6 @@ def get_unscraped_links():
     return links
 
 def get_unanalyzed_articles():
-    """Fetches articles that have not yet had their sentiment analyzed."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT a.id, a.cleaned_text FROM articles a LEFT JOIN sentiments s ON a.id = s.article_id WHERE s.id IS NULL AND a.cleaned_text IS NOT NULL AND a.cleaned_text != "N/A" GROUP BY a.id')
