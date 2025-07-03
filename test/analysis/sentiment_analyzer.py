@@ -18,7 +18,11 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 # --- CONFIGURATION ---
 # Change this value to 'openai' to use ChatGPT, or 'groq' to use Groq.
-LLM_PROVIDER = 'groq'
+LLM_PROVIDER = 'openai' # or 'openai'
+# Specify the exact model names to use for each provider
+OPENAI_MODEL_NAME = 'gpt-4o-mini' # e.g., 'gpt-4-turbo', 'gpt-3.5-turbo'
+GROQ_MODEL_NAME = 'llama3-8b-8192' # e.g., 'llama3-8b-8192', 'mixtral-8x7b-32768'
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,10 +39,10 @@ class EntitySentiment(BaseModel):
 class TextAnalysis(BaseModel):
     """A data model to hold the entity sentiment analysis of a given text."""
     entities: List[EntitySentiment] = Field(
-        description="A list of valid entities (companies or cryptos) mentioned in the text."
+        description="A list of valid entities (companies or cryptos) mentioned in the text. This list CAN and SHOULD be empty if no valid entities are found."
     )
 
-# --- CORRECTED: Custom Callback Handler for Groq ---
+# --- Custom Callback Handler for Groq ---
 class GroqTokenUsageCallback(BaseCallbackHandler):
     """Callback handler to capture token usage from Groq."""
     def __init__(self):
@@ -53,19 +57,19 @@ class GroqTokenUsageCallback(BaseCallbackHandler):
 # --- MODEL INITIALIZATION FACTORY ---
 def get_language_model():
     """
-    Initializes and returns the appropriate language model based on the provider.
+    Initializes and returns the appropriate language model based on the provider and model name.
     """
     if LLM_PROVIDER == 'openai':
-        print("Using OpenAI model.")
+        print(f"Using OpenAI model: {OPENAI_MODEL_NAME}")
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY not found in environment variables.")
-        return ChatOpenAI(model_name="gpt-4-turbo", temperature=0)
+        return ChatOpenAI(model_name=OPENAI_MODEL_NAME, temperature=0)
     
     elif LLM_PROVIDER == 'groq':
-        print("Using Groq model.")
+        print(f"Using Groq model: {GROQ_MODEL_NAME}")
         if not os.getenv("GROQ_API_KEY"):
             raise ValueError("GROQ_API_KEY not found in environment variables.")
-        return ChatGroq(model_name="llama3-8b-8192", temperature=0)
+        return ChatGroq(model_name=GROQ_MODEL_NAME, temperature=0)
     
     else:
         raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}. Please choose 'openai' or 'groq'.")
@@ -79,7 +83,7 @@ except Exception as e:
     print(f"Error initializing language model: {e}")
     structured_llm = None
 
-# --- System Prompt (works for both models) ---
+# --- System Prompt (IMPROVED) ---
 system_prompt = """
 You are a highly precise financial analyst. Your task is to extract **only legitimate companies and cryptocurrencies** from the provided text and analyze the financial sentiment towards them.
 
@@ -90,6 +94,7 @@ You are a highly precise financial analyst. Your task is to extract **only legit
 4.  **ENTITY CLASSIFICATION:**
     * `company`: A registered business entity, stock exchange, or major corporation.
     * `crypto`: A digital or virtual currency like Bitcoin or Ethereum.
+5.  **EMPTY LIST IS VALID:** It is not guaranteed that every article will contain a company or cryptocurrency. If you scan the text and find no such entities, your only valid response is to return an empty list for the 'entities' field. Do not invent entities.
 
 **RULES FOR SENTIMENT ANALYSIS:**
 -   **positive**: Assign this ONLY if the text explicitly mentions stock growth, record profits, successful funding, market outperformance, or other clear financial gains. General positive economic news about a country is NOT a positive sentiment for a company.
@@ -115,7 +120,7 @@ def analyze_text_for_sentiment(text: str):
     if not text or not isinstance(text, str) or len(text.strip()) < 20:
         return [], {}
 
-    print(f"\nAnalyzing article for sentiment with strict rules using {LLM_PROVIDER}...")
+    print(f"\nAnalyzing article for sentiment with strict rules using {LLM_PROVIDER} ({llm.model_name})...")
     
     try:
         if LLM_PROVIDER == 'openai':
@@ -132,7 +137,7 @@ def analyze_text_for_sentiment(text: str):
                 return response.entities, usage_stats
 
         elif LLM_PROVIDER == 'groq':
-            # CORRECTED: Use the custom callback to capture token usage for Groq
+            # Use the custom callback to capture token usage for Groq
             token_callback = GroqTokenUsageCallback()
             response = chain.invoke(
                 {"text": text},
