@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { TrendingUp, BarChart3, Home, Settings } from 'lucide-react';
+import { TrendingUp, BarChart3, Home, Settings, BookOpen } from 'lucide-react';
 
 const Header: React.FC = () => {
   const location = useLocation();
@@ -9,6 +9,7 @@ const Header: React.FC = () => {
   const navItems = [
     { path: '/', label: 'Home', icon: Home },
     { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
+    { path: '/articles', label: 'Articles', icon: BookOpen },
     { path: '/developer', label: 'Developer', icon: Settings },
   ];
 

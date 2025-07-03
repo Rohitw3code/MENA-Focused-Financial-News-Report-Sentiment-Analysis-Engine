@@ -265,6 +265,52 @@ def get_sentiment_over_time():
     overall_trend = [[row['publication_date'], get_score(row['overall_sentiment'])] for row in rows]
     return jsonify({"entity_name": entity_name, "financial_sentiment_trend": financial_trend, "overall_sentiment_trend": overall_trend})
 
+# NEW ENDPOINT: /api/dashboard_stats
+@app.route('/api/dashboard_stats', methods=['GET'])
+def get_dashboard_stats():
+    """
+    Provides a set of key statistics for a dashboard view.
+    """
+    conn = get_db_connection()
+    
+    # 1. Total unique entities analyzed
+    total_entities = conn.execute("SELECT COUNT(DISTINCT entity_name) FROM sentiments").fetchone()[0]
+    
+    # 2. Total articles analyzed (i.e., having at least one sentiment entry)
+    articles_analyzed = conn.execute("SELECT COUNT(DISTINCT article_id) FROM sentiments").fetchone()[0]
+    
+    # 3. Total sentiment points recorded
+    total_sentiments = conn.execute("SELECT COUNT(*) FROM sentiments").fetchone()[0]
+    
+    # 4. Sentiment Distribution
+    query = """
+        SELECT sentiment, COUNT(*) as count
+        FROM (
+            SELECT financial_sentiment as sentiment FROM sentiments
+            UNION ALL
+            SELECT overall_sentiment as sentiment FROM sentiments
+        )
+        GROUP BY sentiment
+    """
+    dist_rows = conn.execute(query).fetchall()
+    conn.close()
+    
+    distribution = {
+        'positive': 0,
+        'negative': 0,
+        'neutral': 0
+    }
+    for row in dist_rows:
+        if row['sentiment'] in distribution:
+            distribution[row['sentiment']] = row['count']
+
+    return jsonify({
+        "total_entities": total_entities or 0,
+        "articles_analyzed": articles_analyzed or 0,
+        "total_sentiment_points": total_sentiments or 0,
+        "sentiment_distribution": distribution
+    })
+
 @app.route('/api/entity_articles_by_sentiment', methods=['GET'])
 def get_entity_articles_by_sentiment():
     """For a given entity, returns a structured list of its associated articles, grouped by sentiment."""
