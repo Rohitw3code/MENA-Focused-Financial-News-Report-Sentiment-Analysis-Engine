@@ -27,18 +27,30 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
       const url = new URL(`${apiBaseUrl}${endpoint}`);
       if (params) {
         Object.entries(params).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
+          if (value !== undefined && value !== null && value !== '') {
             url.searchParams.append(key, value.toString());
           }
         });
       }
       
-      const response = await fetch(url.toString());
+      console.log('Fetching:', url.toString());
+      
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
       }
       
-      return await response.json();
+      const data = await response.json();
+      console.log('API Response:', data);
+      return data;
     } catch (error) {
       console.error('API fetch error:', error);
       throw error;

@@ -6,20 +6,23 @@ import threading
 import re
 from datetime import datetime
 from dotenv import load_dotenv
+
+# --- Flask & Web Server Imports ---
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-
-# --- Imports for Scheduling ---
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
-# --- Imports for AI Agents & Pipeline ---
+# --- AI & Pipeline Imports ---
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic.v1 import BaseModel, Field, ValidationError
 from typing import List
-import pipeline # The module containing the core logic
-import database # Import database to access config functions
+
+# --- Custom Module Imports ---
+import pipeline
+import database
+import scraper_manager # NEW: For dynamic scraper management
 
 # --- Configuration ---
 DB_NAME = 'news_data.db'
@@ -32,14 +35,15 @@ pipeline_status_tracker = {
     "status": "Idle",
     "progress": 0,
     "total": 0,
-    "current_task": "N/A"
+    "current_task": "N/A",
+    "stop_event": None, # NEW: For graceful shutdown
 }
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
 CORS(app)
 
-# --- Database Helper Function ---
+# --- Database Helper ---
 def get_db_connection():
     """Creates a database connection that returns dictionary-like rows."""
     conn = sqlite3.connect(DB_NAME)
@@ -60,12 +64,8 @@ class Summary(BaseModel):
 try:
     summary_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     structured_summary_llm = summary_llm.with_structured_output(Summary)
-except Exception as e:
-    print(f"Warning: Could not initialize summarization LLM. The /summarize_entity endpoint will not work. Error: {e}")
-    structured_summary_llm = None
-
-summary_prompt_template = ChatPromptTemplate.from_messages([
-    ("system", """
+    summary_prompt_template = ChatPromptTemplate.from_messages([
+        ("system", """
 You are an expert financial analyst. You will be given a list of reasoning snippets from multiple news articles about a specific company or cryptocurrency. Your task is to synthesize these snippets into a clear, structured summary.
 
 Analyze all the provided reasons and categorize the key points into six lists:
@@ -80,12 +80,11 @@ Finally, provide a brief, one or two-sentence `final_summary` of the entity's ov
 
 Do not invent new information. Base your summary *only* on the provided reasoning snippets. It is critical that your final JSON object includes all fields, especially `final_summary`.
 """),
-    ("human", "Please summarize the following reasoning points for {entity_name}:\n\n{reasoning_list}")
-])
-
-if structured_summary_llm:
+        ("human", "Please summarize the following reasoning points for {entity_name}:\n\n{reasoning_list}")
+    ])
     summary_chain = summary_prompt_template | structured_summary_llm
-else:
+except Exception as e:
+    print(f"Warning: Could not initialize summarization LLM. The /summarize_entity endpoint will not work. Error: {e}")
     summary_chain = None
 
 
@@ -97,10 +96,19 @@ def home():
     return jsonify({
         "message": "Welcome to the Financial News Sentiment API.",
         "endpoints": {
+            "/api/scrapers": {
+                "method": "GET",
+                "description": "NEW: Get a list of all available scraper names.",
+            },
             "/api/trigger_pipeline": {
                 "method": "POST",
-                "description": "Starts the scraping and analysis process in the background. Requires password.",
-                "body_example": {"password": "your_password", "provider": "openai", "model_name": "gpt-4-turbo"}
+                "description": "MODIFIED: Starts scraping and analysis. Can specify which scrapers to run.",
+                "body_example": {"password": "your_password", "provider": "openai", "model_name": "gpt-4-turbo", "scrapers": ["zawya.com", "menabytes.com"]}
+            },
+            "/api/stop_pipeline": {
+                "method": "POST",
+                "description": "NEW: Requests the running pipeline to stop gracefully. Requires password.",
+                "body_example": {"password": "your_password"}
             },
             "/api/configure_schedule": {
                 "method": "POST",
@@ -152,59 +160,110 @@ def home():
         }
     })
 
+@app.route('/api/scrapers', methods=['GET'])
+def list_scrapers():
+    """Lists the names of all available scraper modules."""
+    try:
+        scraper_names = scraper_manager.get_all_scraper_names()
+        return jsonify(scraper_names)
+    except Exception as e:
+        return jsonify({"error": "Could not retrieve scraper list.", "details": str(e)}), 500
+
+@app.route('/api/stop_pipeline', methods=['POST'])
+def stop_pipeline():
+    """Requests the currently running pipeline to stop gracefully."""
+    if not pipeline_status_tracker["is_running"]:
+        return jsonify({"error": "No pipeline is currently running."}), 404
+
+    data = request.get_json(silent=True) or {}
+    # Uncomment the following lines to enforce password protection
+    # password = data.get("password")
+    # if not password or password != PIPELINE_PASSWORD:
+    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+
+    stop_event = pipeline_status_tracker.get("stop_event")
+    if stop_event and isinstance(stop_event, threading.Event):
+        stop_event.set()
+        pipeline_status_tracker["status"] = "Stopping..."
+        return jsonify({"message": "Pipeline stop signal sent. It will terminate shortly."}), 202
+    
+    return jsonify({"error": "Could not send stop signal. The pipeline may be in a state that cannot be interrupted."}), 500
+
 @app.route('/api/trigger_pipeline', methods=['POST'])
 def trigger_pipeline():
-    """Triggers the full data pipeline to run in the background. Requires a password."""
+    """
+    Triggers the full data pipeline. Now accepts a list of scrapers to run.
+    If 'scrapers' is not provided, it will run all available scrapers.
+    """
     if pipeline_status_tracker["is_running"]:
         return jsonify({"error": "A pipeline is already running."}), 409
 
     data = request.get_json(silent=True) or {}
-    password = data.get("password")
-
-    if not password or password != PIPELINE_PASSWORD:
-        return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+    # Uncomment the following lines to enforce password protection
+    # password = data.get("password")
+    # if not password or password != PIPELINE_PASSWORD:
+    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
     
+    # --- Scraper Selection ---
+    selected_scrapers = data.get("scrapers") # Can be a list of names or None
+    try:
+        scraper_modules = scraper_manager.get_scraper_modules(selected_scrapers)
+        if not scraper_modules:
+            return jsonify({"error": "No valid scrapers found for the given selection."}), 400
+    except Exception as e:
+        return jsonify({"error": "Failed to load scraper modules.", "details": str(e)}), 500
+
+    # --- AI Config ---
     config = {
-        "provider": data.get("provider"),
-        "model_name": data.get("model_name"),
-        "openai_api_key": data.get("openai_api_key"),
-        "groq_api_key": data.get("groq_api_key")
+        "provider": data.get("provider"), "model_name": data.get("model_name"),
+        "openai_api_key": data.get("openai_api_key"), "groq_api_key": data.get("groq_api_key")
     }
 
-    def pipeline_task(app_context, config):
+    def pipeline_task(app_context, scraper_mods, stop_event, llm_config):
         with app_context:
             pipeline_status_tracker["is_running"] = True
+            pipeline_status_tracker["stop_event"] = stop_event
+            run_status = "Completed"
             try:
-                scraping_stats = pipeline.run_scraping_pipeline(pipeline_status_tracker)
-                analysis_stats = pipeline.run_analysis_pipeline(pipeline_status_tracker, **config)
-                final_stats = {**scraping_stats, **analysis_stats, "status": "Completed"}
+                scraping_stats = pipeline.run_scraping_pipeline(pipeline_status_tracker, scraper_mods, stop_event)
+                
+                analysis_stats = {}
+                if not stop_event.is_set():
+                    analysis_stats = pipeline.run_analysis_pipeline(pipeline_status_tracker, stop_event, **llm_config)
+                
+                if stop_event.is_set():
+                    run_status = "Stopped by user"
+
+                final_stats = {**scraping_stats, **analysis_stats, "status": run_status}
                 database.add_pipeline_run(final_stats)
+
             except Exception as e:
                 print(f"Pipeline failed: {e}")
                 database.add_pipeline_run({"status": f"Failed: {e}"})
             finally:
-                pipeline_status_tracker["is_running"] = False
-                pipeline_status_tracker["status"] = "Idle"
-                pipeline_status_tracker["progress"] = 0
-                pipeline_status_tracker["total"] = 0
-                pipeline_status_tracker["current_task"] = "N/A"
+                # Reset global state
+                pipeline_status_tracker.update({
+                    "is_running": False, "status": "Idle", "progress": 0, "total": 0,
+                    "current_task": "N/A", "stop_event": None
+                })
 
-    thread = threading.Thread(target=pipeline_task, args=(app.app_context(), config))
+    stop_event = threading.Event()
+    thread = threading.Thread(target=pipeline_task, args=(app.app_context(), scraper_modules, stop_event, config))
     thread.daemon = True
     thread.start()
 
-    return jsonify({"message": "Pipeline triggered successfully. It will run in the background."}), 202
+    return jsonify({"message": "Pipeline triggered successfully in the background."}), 202
 
 @app.route('/api/configure_schedule', methods=['POST'])
 def configure_schedule():
     """Sets the daily UTC time for the automated pipeline run. Requires a password."""
     data = request.get_json(silent=True) or {}
-    password = data.get("password")
+    # Uncomment the following lines to enforce password protection
+    # password = data.get("password")
+    # if not password or password != PIPELINE_PASSWORD:
+    #     return jsonify({"error": "Unauthorized. A valid password is required."}), 401
+
     new_time = data.get("schedule_time")
-
-    if not password or password != PIPELINE_PASSWORD:
-        return jsonify({"error": "Unauthorized. A valid password is required."}), 401
-
     if not new_time or not re.match(r'^([01]\d|2[0-3]):([0-5]\d)$', new_time):
         return jsonify({"error": "Invalid time format. Please use 'HH:MM'."}), 400
 
@@ -219,7 +278,10 @@ def configure_schedule():
 @app.route('/api/pipeline_status', methods=['GET'])
 def get_pipeline_status():
     """Returns the real-time status of the currently running pipeline."""
-    return jsonify(pipeline_status_tracker)
+    # Create a copy to avoid returning the non-serializable Event object
+    status_copy = pipeline_status_tracker.copy()
+    status_copy.pop("stop_event", None)
+    return jsonify(status_copy)
 
 @app.route('/api/pipeline_last_run', methods=['GET'])
 def get_last_run_stats():
@@ -264,6 +326,37 @@ def get_sentiment_over_time():
     financial_trend = [[row['publication_date'], get_score(row['financial_sentiment'])] for row in rows]
     overall_trend = [[row['publication_date'], get_score(row['overall_sentiment'])] for row in rows]
     return jsonify({"entity_name": entity_name, "financial_sentiment_trend": financial_trend, "overall_sentiment_trend": overall_trend})
+
+@app.route('/api/dashboard_stats', methods=['GET'])
+def get_dashboard_stats():
+    """Provides a set of key statistics for a dashboard view."""
+    conn = get_db_connection()
+    total_entities = conn.execute("SELECT COUNT(DISTINCT entity_name) FROM sentiments").fetchone()[0]
+    articles_analyzed = conn.execute("SELECT COUNT(DISTINCT article_id) FROM sentiments").fetchone()[0]
+    total_sentiments = conn.execute("SELECT COUNT(*) FROM sentiments").fetchone()[0]
+    query = """
+        SELECT sentiment, COUNT(*) as count
+        FROM (
+            SELECT financial_sentiment as sentiment FROM sentiments
+            UNION ALL
+            SELECT overall_sentiment as sentiment FROM sentiments
+        )
+        GROUP BY sentiment
+    """
+    dist_rows = conn.execute(query).fetchall()
+    conn.close()
+    
+    distribution = {'positive': 0, 'negative': 0, 'neutral': 0}
+    for row in dist_rows:
+        if row['sentiment'] in distribution:
+            distribution[row['sentiment']] = row['count']
+
+    return jsonify({
+        "total_entities": total_entities or 0,
+        "articles_analyzed": articles_analyzed or 0,
+        "total_sentiment_points": total_sentiments or 0,
+        "sentiment_distribution": distribution
+    })
 
 @app.route('/api/entity_articles_by_sentiment', methods=['GET'])
 def get_entity_articles_by_sentiment():
@@ -312,7 +405,7 @@ def summarize_entity():
 def get_articles():
     """The main endpoint for fetching and filtering articles."""
     conn = get_db_connection()
-    query = "SELECT a.id as article_id, a.title, a.url, a.author, a.publication_date, a.cleaned_text, s.id as sentiment_id, s.entity_name, s.entity_type, s.financial_sentiment, s.overall_sentiment, s.reasoning FROM articles a LEFT JOIN sentiments s ON a.id = s.article_id"
+    query = "SELECT a.id as article_id, a.title, a.url, a.author, a.publication_date, s.id as sentiment_id, s.entity_name, s.entity_type, s.financial_sentiment, s.overall_sentiment, s.reasoning FROM articles a LEFT JOIN sentiments s ON a.id = s.article_id"
     conditions, params = [], {}
     if request.args.get('entity_name'): conditions.append("s.entity_name LIKE :entity_name"); params['entity_name'] = f"%{request.args.get('entity_name')}%"
     if request.args.get('entity_type'): conditions.append("s.entity_type = :entity_type"); params['entity_type'] = request.args.get('entity_type')
@@ -320,15 +413,28 @@ def get_articles():
     if request.args.get('overall_sentiment'): conditions.append("s.overall_sentiment = :overall_sentiment"); params['overall_sentiment'] = request.args.get('overall_sentiment')
     if conditions: query += f" WHERE a.id IN (SELECT DISTINCT article_id FROM sentiments WHERE {' AND '.join(conditions)})"
     query += " ORDER BY a.publication_date DESC"
-    limit = request.args.get('limit', 5, type=int)
+    limit = request.args.get('limit', 20, type=int)
+    query += f" LIMIT {limit}"
+    
     rows = conn.execute(query, params).fetchall()
     conn.close()
+    
     articles = {}
     for row in rows:
         article_id = row['article_id']
-        if article_id not in articles: articles[article_id] = {"id": article_id, "title": row['title'], "url": row['url'], "author": row['author'], "publication_date": row['publication_date'], "cleaned_text": row['cleaned_text'], "sentiments": []}
-        if row['sentiment_id']: articles[article_id]['sentiments'].append({"entity_name": row['entity_name'], "entity_type": row['entity_type'], "financial_sentiment": row['financial_sentiment'], "overall_sentiment": row['overall_sentiment'], "reasoning": row['reasoning']})
-    return jsonify(list(articles.values())[:limit])
+        if article_id not in articles:
+            articles[article_id] = {
+                "id": article_id, "title": row['title'], "url": row['url'],
+                "author": row['author'], "publication_date": row['publication_date'],
+                "sentiments": []
+            }
+        if row['sentiment_id']:
+            articles[article_id]['sentiments'].append({
+                "entity_name": row['entity_name'], "entity_type": row['entity_type'],
+                "financial_sentiment": row['financial_sentiment'],
+                "overall_sentiment": row['overall_sentiment'], "reasoning": row['reasoning']
+            })
+    return jsonify(list(articles.values()))
 
 @app.route('/api/entities', methods=['GET'])
 def get_entities():
@@ -352,37 +458,52 @@ def get_usage_stats():
 
 # --- Scheduler Setup ---
 def scheduled_pipeline_run():
-    """A wrapper function for the scheduler to run the pipeline."""
+    """A wrapper for the scheduler to run the pipeline with all available scrapers."""
     with app.app_context():
-        print(f"--- Scheduled pipeline run started at {datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC ---")
         if pipeline_status_tracker["is_running"]:
             print("Scheduled run skipped: A pipeline is already in progress.")
             return
+
+        print(f"--- Scheduled pipeline run started at {datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC ---")
         
-        pipeline_status_tracker["is_running"] = True
+        stop_event = threading.Event()
         try:
-            scraping_stats = pipeline.run_scraping_pipeline(pipeline_status_tracker)
-            analysis_stats = pipeline.run_analysis_pipeline(pipeline_status_tracker)
-            final_stats = {**scraping_stats, **analysis_stats, "status": "Completed"}
+            scraper_modules = scraper_manager.get_scraper_modules() # All scrapers
+            if not scraper_modules:
+                print("Scheduled run aborted: No scrapers found.")
+                return
+        except Exception as e:
+            print(f"Scheduled run failed during scraper discovery: {e}")
+            return
+
+        pipeline_status_tracker["is_running"] = True
+        pipeline_status_tracker["stop_event"] = stop_event
+        run_status = "Completed"
+        try:
+            scraping_stats = pipeline.run_scraping_pipeline(pipeline_status_tracker, scraper_modules, stop_event)
+            analysis_stats = pipeline.run_analysis_pipeline(pipeline_status_tracker, stop_event) # Default LLM config
+            final_stats = {**scraping_stats, **analysis_stats, "status": run_status}
             database.add_pipeline_run(final_stats)
         except Exception as e:
             print(f"Scheduled pipeline failed: {e}")
             database.add_pipeline_run({"status": f"Failed: {e}"})
         finally:
-            pipeline_status_tracker["is_running"] = False
-            pipeline_status_tracker["status"] = "Idle"
-            pipeline_status_tracker["progress"] = 0
-            pipeline_status_tracker["total"] = 0
-            pipeline_status_tracker["current_task"] = "N/A"
-
-scheduler = BackgroundScheduler(daemon=True)
+            pipeline_status_tracker.update({
+                "is_running": False, "status": "Idle", "progress": 0, "total": 0,
+                "current_task": "N/A", "stop_event": None
+            })
 
 # --- Main Execution ---
 if __name__ == '__main__':
     database.create_database()
+    scraper_manager.discover_scrapers() # Pre-discover on startup
+    
+    scheduler = BackgroundScheduler(daemon=True)
     schedule_time_str = database.get_config_value('schedule_time', '01:00')
     hour, minute = map(int, schedule_time_str.split(':'))
     scheduler.add_job(scheduled_pipeline_run, 'cron', hour=hour, minute=minute, timezone='utc', id='daily_pipeline_job')
     scheduler.start()
+    
     print(f"Pipeline scheduler started. Next run scheduled for {schedule_time_str} UTC daily.")
+    print(f"Available scrapers found: {scraper_manager.get_all_scraper_names()}")
     app.run(debug=True, use_reloader=False)

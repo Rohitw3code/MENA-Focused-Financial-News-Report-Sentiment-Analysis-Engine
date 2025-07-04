@@ -9,8 +9,8 @@ interface ArticleCardProps {
     url: string;
     author: string;
     publication_date: string;
-    cleaned_text: string;
-    sentiments: Array<{
+    cleaned_text?: string;
+    sentiments?: Array<{
       entity_name: string;
       entity_type: string;
       financial_sentiment: string;
@@ -46,21 +46,33 @@ const ArticleCard: React.FC<ArticleCardProps> = ({ article, index, onReadMore })
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return dateString; // Return original if parsing fails
+    }
   };
 
   const getReadingTime = (text: string) => {
+    if (!text) return 1;
     const wordsPerMinute = 200;
     const wordCount = text.split(' ').length;
     const readingTime = Math.ceil(wordCount / wordsPerMinute);
-    return readingTime;
+    return Math.max(1, readingTime);
   };
+
+  // Safely handle missing data
+  const safeTitle = article.title || 'Untitled Article';
+  const safeAuthor = article.author || 'Unknown Author';
+  const safeDate = article.publication_date || new Date().toISOString();
+  const safeText = article.cleaned_text || '';
+  const safeSentiments = article.sentiments || [];
 
   return (
     <motion.div
@@ -74,39 +86,41 @@ const ArticleCard: React.FC<ArticleCardProps> = ({ article, index, onReadMore })
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1 min-w-0">
             <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors leading-tight">
-              {article.title}
+              {safeTitle}
             </h3>
             <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 space-y-2 sm:space-y-0 text-xs sm:text-sm text-slate-500">
               <div className="flex items-center space-x-1">
                 <User className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                <span className="font-medium truncate">{article.author}</span>
+                <span className="font-medium truncate">{safeAuthor}</span>
               </div>
               <div className="flex items-center space-x-1">
                 <Calendar className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                <span className="truncate">{formatDate(article.publication_date)}</span>
+                <span className="truncate">{formatDate(safeDate)}</span>
               </div>
               <div className="flex items-center space-x-1">
                 <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                <span>{getReadingTime(article.cleaned_text)} min read</span>
+                <span>{getReadingTime(safeText)} min read</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* Article Preview */}
-        <p className="text-slate-600 text-sm mb-4 line-clamp-3 leading-relaxed">
-          {article.cleaned_text?.substring(0, 200)}...
-        </p>
+        {safeText && (
+          <p className="text-slate-600 text-sm mb-4 line-clamp-3 leading-relaxed">
+            {safeText.substring(0, 200)}...
+          </p>
+        )}
 
         {/* Sentiment Analysis */}
-        {article.sentiments && article.sentiments.length > 0 && (
+        {safeSentiments.length > 0 && (
           <div className="space-y-3">
             <h4 className="text-sm font-bold text-slate-700 flex items-center">
               <TrendingUp className="h-4 w-4 mr-2 text-blue-600" />
-              Sentiment Analysis ({article.sentiments.length} entities)
+              Sentiment Analysis ({safeSentiments.length} entities)
             </h4>
             <div className="space-y-2">
-              {article.sentiments.slice(0, 2).map((sentiment, idx) => {
+              {safeSentiments.slice(0, 2).map((sentiment, idx) => {
                 const SentimentIcon = getSentimentIcon(sentiment.overall_sentiment);
                 const EntityIcon = getEntityIcon(sentiment.entity_type);
                 
@@ -134,10 +148,10 @@ const ArticleCard: React.FC<ArticleCardProps> = ({ article, index, onReadMore })
                   </div>
                 );
               })}
-              {article.sentiments.length > 2 && (
+              {safeSentiments.length > 2 && (
                 <div className="text-center py-2">
                   <span className="text-xs text-slate-500 font-medium">
-                    +{article.sentiments.length - 2} more entities
+                    +{safeSentiments.length - 2} more entities
                   </span>
                 </div>
               )}
@@ -155,15 +169,17 @@ const ArticleCard: React.FC<ArticleCardProps> = ({ article, index, onReadMore })
           <Eye className="h-4 w-4" />
           <span>Read Full Article</span>
         </button>
-        <a
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center space-x-2 text-slate-600 hover:text-slate-800 font-medium transition-colors group px-3 py-2 rounded-lg hover:bg-slate-100"
-        >
-          <span>Source</span>
-          <ExternalLink className="h-4 w-4 group-hover:translate-x-1 transition-transform duration-200" />
-        </a>
+        {article.url && (
+          <a
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center space-x-2 text-slate-600 hover:text-slate-800 font-medium transition-colors group px-3 py-2 rounded-lg hover:bg-slate-100"
+          >
+            <span>Source</span>
+            <ExternalLink className="h-4 w-4 group-hover:translate-x-1 transition-transform duration-200" />
+          </a>
+        )}
       </div>
     </motion.div>
   );

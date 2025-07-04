@@ -1,124 +1,136 @@
-import requests
-from bs4 import BeautifulSoup
 import re
+import time
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 # The base URL of the website you want to scrape
-BASE_URL = "https://www.menabytes.com"
-# The name of the file where the main page HTML will be saved
-OUTPUT_FILENAME = "menabytes.html"
+BASE_URL = "https://gulfnews.com"
 
-def extract_article_details(url):
+def get_fully_loaded_page(url):
     """
-    Extracts structured data from a single news article page.
+    Uses Selenium to load a web page completely, including dynamic JavaScript content.
+    It scrolls down the page to trigger any lazy-loaded elements.
 
     Args:
-        url (str): The URL of the article to process.
+        url (str): The URL of the page to load.
 
     Returns:
-        dict: A dictionary containing the article's URL, title,
-              publication date, author, raw text, and cleaned text,
-              or None if the request fails.
+        BeautifulSoup: A BeautifulSoup object of the fully rendered page, or None if an error occurs.
     """
-    print(f"\n--- Processing article: {url} ---")
+    print(f"--- Loading page with Selenium to execute JavaScript: {url} ---")
     try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        # Setup Chrome options for headless mode (runs browser in the background without a UI)
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
 
-        # Extract the title from the <h1> tag
-        title_tag = soup.find('h1', class_='post-title')
-        title = title_tag.get_text(strip=True) if title_tag else 'N/A'
+        # Set up the Selenium Chrome driver.
+        # webdriver-manager will automatically download and manage the correct driver for your installed Chrome version.
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-        # Extract the publication date from the <time> tag
-        date_tag = soup.find('time', itemprop='datePublished')
-        date = date_tag['datetime'] if date_tag else 'N/A'
+        # Go to the page
+        driver.get(url)
 
-        # Extract the author from the <span> tag with class 'author-name'
-        author_tag = soup.find('span', class_='author-name')
-        author = author_tag.get_text(strip=True) if author_tag else 'N/A'
+        # Wait for the initial page content to load
+        print("--- Waiting for initial page load... ---")
+        time.sleep(5)  # A simple wait to allow initial JavaScript to run. For more complex sites, an explicit wait might be better.
 
-        # Extract the main content of the article
-        content_area = soup.find('div', id='content-main')
-        raw_text = ''
-        cleaned_text = ''
-        if content_area:
-            # Get the raw HTML content
-            raw_text = str(content_area)
-            # Get the cleaned text, joining paragraphs
-            paragraphs = content_area.find_all('p')
-            cleaned_text = '\n'.join([p.get_text(strip=True) for p in paragraphs])
-        else:
-            raw_text = 'Content not found'
-            cleaned_text = 'Content not found'
+        # Scroll down to the bottom of the page to trigger lazy-loading of more articles.
+        print("--- Scrolling down to load more content... ---")
+        last_height = driver.execute_script("return document.body.scrollHeight")
         
-        # Return the structured data
-        return {
-            'url': url,
-            'title': title,
-            'publication_date': date,
-            'author': author,
-            'raw_text': raw_text,
-            'cleaned_text': cleaned_text
-        }
+        # We'll scroll a few times to make sure we get everything.
+        for i in range(3): 
+            print(f"--- Scrolling... Pass {i+1}/3 ---")
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(3) # Wait for new content to load after scrolling
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                print("--- Reached the bottom of the page. ---")
+                break # Exit if the page height hasn't changed, meaning no new content was loaded.
+            last_height = new_height
 
-    except requests.exceptions.RequestException as req_err:
-        print(f"An error occurred while fetching {url}: {req_err}")
-        return None
+        # Get the page source after JavaScript has rendered the content
+        page_source = driver.page_source
+        print("--- Page fully loaded and source captured. ---")
+
+        # Close the browser to free up resources
+        driver.quit()
+
+        # Parse the page source with BeautifulSoup
+        soup = BeautifulSoup(page_source, 'html.parser')
+        return soup
+
     except Exception as e:
-        print(f"An error occurred while parsing {url}: {e}")
+        print(f"An error occurred while using Selenium: {e}")
+        if 'driver' in locals():
+            driver.quit()
         return None
 
-
-def scrape_and_find_links():
+def get_article_links(soup):
     """
-    Scrapes the main page to find all news article links.
+    Parses a BeautifulSoup object to extract and return unique article links.
+
+    Args:
+        soup (BeautifulSoup): The parsed HTML of the page.
+
+    Returns:
+        list: A list of unique, absolute URLs to the articles.
     """
-    try:
-        # Send an HTTP GET request to the main URL
-        print(f"Requesting HTML from {BASE_URL}...")
-        response = requests.get(BASE_URL, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        html_content = response.text
-
-        # Save the HTML content to a file
-        with open(OUTPUT_FILENAME, 'w', encoding='utf-8') as file:
-            file.write(html_content)
-        print(f"Successfully saved the HTML to {OUTPUT_FILENAME}")
-
-        # Parse the HTML to find news links
-        soup = BeautifulSoup(html_content, 'html.parser')
-        news_items = soup.find_all('li', class_='infinite-post')
-        news_links = [item.find('a')['href'] for item in news_items if item.find('a')]
+    if not soup:
+        print("--- BeautifulSoup object is None. Cannot extract links. ---")
+        return []
         
-        return news_links
-
-    except requests.exceptions.RequestException as req_err:
-        print(f"An error occurred: {req_err}")
-    except IOError as io_err:
-        print(f"File error occurred: {io_err}")
+    print("--- Parsing HTML to find article links... ---")
     
-    return []
+    # Use a set to automatically handle duplicate links
+    article_links = set()
+    
+    # Regex to identify article URLs. This pattern looks for URLs that
+    # have at least two path segments and end with a specific numeric ID format.
+    # Example: /world/asia/pakistan/story-slug-1.1234567
+    article_pattern = re.compile(r'\/[^/]+\/.+-1\.\d+')
+
+    # Find all anchor <a> tags that have an 'href' attribute
+    for a_tag in soup.find_all('a', href=True):
+        href = a_tag['href']
+        
+        # Check if the link matches the article pattern and is not just a fragment
+        if href and article_pattern.match(href):
+            # Construct the full, absolute URL if it's a relative link
+            if href.startswith('/'):
+                full_url = BASE_URL + href
+                article_links.add(full_url)
+            # If it's already a full URL from the same domain, add it
+            elif href.startswith(BASE_URL):
+                 article_links.add(href)
+
+    print(f"--- Found {len(article_links)} unique articles ---")
+    # Return the unique links as a sorted list for consistent output
+    return sorted(list(article_links))
 
 # Main execution block
 if __name__ == "__main__":
-    # First, get all the links from the homepage
-    links = scrape_and_find_links()
+    # Note: This script requires Selenium and a webdriver.
+    # You can install them with pip:
+    # pip install selenium webdriver-manager
     
-    if links:
-        print(f"\nFound {len(links)} article links on the main page.")
+    # Get the fully loaded page content using Selenium
+    page_soup = get_fully_loaded_page(BASE_URL)
+    
+    # Extract links from the loaded page content
+    if page_soup:
+        links = get_article_links(page_soup)
         
-        # Let's process the first link as an example
-        first_link = links[0]
-        article_data = extract_article_details(first_link)
-        
-        if article_data:
-            print("\n--- Extracted Data from First Article ---")
-            print(f"URL: {article_data['url']}")
-            print(f"Title: {article_data['title']}")
-            print(f"Publication Date: {article_data['publication_date']}")
-            print(f"Author: {article_data['author']}")
-            print("\n--- Cleaned Text ---")
-            print(article_data['cleaned_text'][:500] + "...") # Print first 500 chars
-            # To see the raw HTML, you could print(article_data['raw_text'])
+        if links:
+            print("\n--- Extracted Article Links ---")
+            for link in links:
+                print(link)
+        else:
+            print("\n--- No article links were found. ---")
     else:
-        print("\nCould not find any article links.")
+        print("\n--- Failed to load the page content. ---")

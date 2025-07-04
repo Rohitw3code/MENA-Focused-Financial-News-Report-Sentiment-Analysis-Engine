@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BookOpen, RefreshCw, ChevronRight, Search, Filter, Calendar, TrendingUp, Menu } from 'lucide-react';
-import { useApiWithCache } from '../hooks/useApi';
+import { useApi } from '../contexts/ApiContext';
 import { ResponsiveContainer, ResponsiveGrid, MobileDrawer, ResponsiveCard } from '../components/ResponsiveLayout';
 import { SkeletonGrid, LoadingSpinner, EmptyState, InlineLoader } from '../components/LoadingStates';
 import ArticleCard from '../components/ArticleCard';
@@ -21,10 +21,11 @@ const Articles: React.FC = () => {
     overall_sentiment: ''
   });
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
-
-  const { fetchWithCache, loading } = useApiWithCache({ cacheTime: 2 * 60 * 1000 });
+  const [loading, setLoading] = useState(true);
   const [articlesLoading, setArticlesLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  const { fetchData } = useApi();
   const ARTICLES_PER_PAGE = 12;
 
   useEffect(() => {
@@ -44,30 +45,51 @@ const Articles: React.FC = () => {
   const loadArticles = async (page: number, reset: boolean = false) => {
     try {
       setArticlesLoading(true);
-      const params = {
-        limit: ARTICLES_PER_PAGE,
-        ...articleFilters
+      setError(null);
+      
+      const params: any = {
+        limit: ARTICLES_PER_PAGE
       };
       
-      // Remove empty filters
-      Object.keys(params).forEach(key => {
-        if (params[key as keyof typeof params] === '') {
-          delete params[key as keyof typeof params];
-        }
-      });
+      // Add filters only if they have values
+      if (articleFilters.entity_name.trim()) {
+        params.entity_name = articleFilters.entity_name.trim();
+      }
+      if (articleFilters.entity_type) {
+        params.entity_type = articleFilters.entity_type;
+      }
+      if (articleFilters.financial_sentiment) {
+        params.financial_sentiment = articleFilters.financial_sentiment;
+      }
+      if (articleFilters.overall_sentiment) {
+        params.overall_sentiment = articleFilters.overall_sentiment;
+      }
 
-      const newArticles = await fetchWithCache('/articles', params, { skipCache: reset });
+      console.log('Loading articles with params:', params);
+      const newArticles = await fetchData('/articles', params);
+      
+      // Ensure we have an array
+      const articlesArray = Array.isArray(newArticles) ? newArticles : [];
       
       if (reset) {
-        setArticles(newArticles);
+        setArticles(articlesArray);
         setArticlesPage(1);
       } else {
-        setArticles(prev => [...prev, ...newArticles]);
+        setArticles(prev => [...prev, ...articlesArray]);
       }
       
-      setHasMoreArticles(newArticles.length === ARTICLES_PER_PAGE);
+      setHasMoreArticles(articlesArray.length === ARTICLES_PER_PAGE);
+      
+      if (reset) {
+        setLoading(false);
+      }
     } catch (error) {
       console.error('Error loading articles:', error);
+      setError('Failed to load articles. Please try again.');
+      if (reset) {
+        setArticles([]);
+        setLoading(false);
+      }
     } finally {
       setArticlesLoading(false);
     }
@@ -83,6 +105,8 @@ const Articles: React.FC = () => {
 
   const handleArticleFilterChange = (newFilters: any) => {
     setArticleFilters(newFilters);
+    setArticles([]); // Clear current articles
+    setLoading(true); // Show loading state
     loadArticles(1, true);
   };
 
@@ -99,6 +123,16 @@ const Articles: React.FC = () => {
       financial_sentiment: '',
       overall_sentiment: ''
     });
+    setArticles([]); // Clear current articles
+    setLoading(true); // Show loading state
+    setError(null); // Clear any errors
+    loadArticles(1, true);
+  };
+
+  const retryLoad = () => {
+    setError(null);
+    setArticles([]);
+    setLoading(true);
     loadArticles(1, true);
   };
 
@@ -177,7 +211,7 @@ const Articles: React.FC = () => {
                   >
                     <option value="">All Types</option>
                     <option value="company">Companies</option>
-                    <option value="cryptocurrency">Cryptocurrencies</option>
+                    <option value="crypto">Cryptocurrencies</option>
                   </select>
                 </div>
                 <div>
@@ -209,14 +243,16 @@ const Articles: React.FC = () => {
                 <div className="flex items-end space-x-2">
                   <button
                     onClick={() => loadArticles(1, true)}
-                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-emerald-100 to-green-100 hover:from-emerald-200 hover:to-green-200 text-emerald-700 rounded-lg transition-all duration-200 shadow-sm"
+                    disabled={articlesLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-emerald-100 to-green-100 hover:from-emerald-200 hover:to-green-200 text-emerald-700 rounded-lg transition-all duration-200 shadow-sm disabled:opacity-50"
                   >
-                    <RefreshCw className="h-4 w-4" />
+                    <RefreshCw className={`h-4 w-4 ${articlesLoading ? 'animate-spin' : ''}`} />
                     <span>Refresh</span>
                   </button>
                   <button
                     onClick={clearFilters}
-                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 text-slate-700 rounded-lg transition-all duration-200 shadow-sm"
+                    disabled={articlesLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 text-slate-700 rounded-lg transition-all duration-200 shadow-sm disabled:opacity-50"
                   >
                     <Filter className="h-4 w-4" />
                     <span>Clear</span>
@@ -235,14 +271,16 @@ const Articles: React.FC = () => {
                 </button>
                 <button
                   onClick={() => loadArticles(1, true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-emerald-100 to-green-100 hover:from-emerald-200 hover:to-green-200 text-emerald-700 rounded-lg transition-all duration-200 shadow-sm"
+                  disabled={articlesLoading}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-emerald-100 to-green-100 hover:from-emerald-200 hover:to-green-200 text-emerald-700 rounded-lg transition-all duration-200 shadow-sm disabled:opacity-50"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className={`h-4 w-4 ${articlesLoading ? 'animate-spin' : ''}`} />
                   <span>Refresh</span>
                 </button>
                 <button
                   onClick={clearFilters}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 text-slate-700 rounded-lg transition-all duration-200 shadow-sm"
+                  disabled={articlesLoading}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 text-slate-700 rounded-lg transition-all duration-200 shadow-sm disabled:opacity-50"
                 >
                   <Filter className="h-4 w-4" />
                   <span>Clear</span>
@@ -278,6 +316,31 @@ const Articles: React.FC = () => {
           </div>
         </motion.div>
 
+        {/* Error State */}
+        {error && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="mb-8"
+          >
+            <div className="bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 rounded-xl p-6 text-center">
+              <div className="text-red-600 mb-4">
+                <BookOpen className="h-12 w-12 mx-auto" />
+              </div>
+              <h3 className="text-lg font-bold text-red-900 mb-2">Error Loading Articles</h3>
+              <p className="text-red-700 mb-4">{error}</p>
+              <button
+                onClick={retryLoad}
+                className="inline-flex items-center space-x-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-all duration-300"
+              >
+                <RefreshCw className="h-5 w-5" />
+                <span>Try Again</span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Articles Grid */}
         <motion.div
           initial={{ y: 20, opacity: 0 }}
@@ -286,7 +349,7 @@ const Articles: React.FC = () => {
         >
           {loading ? (
             <SkeletonGrid count={6} />
-          ) : articles.length === 0 ? (
+          ) : articles.length === 0 && !error ? (
             <EmptyState
               icon={BookOpen}
               title="No articles found"
@@ -306,7 +369,7 @@ const Articles: React.FC = () => {
               <ResponsiveGrid cols={{ sm: 1, md: 2, lg: 3 }} gap={6}>
                 {articles.map((article, index) => (
                   <ArticleCard
-                    key={article.id}
+                    key={`${article.id}-${index}`}
                     article={article}
                     index={index}
                     onReadMore={handleReadMore}
@@ -315,7 +378,7 @@ const Articles: React.FC = () => {
               </ResponsiveGrid>
 
               {/* Load More Button */}
-              {hasMoreArticles && (
+              {hasMoreArticles && !error && (
                 <div className="text-center mt-8 sm:mt-12">
                   <button
                     onClick={loadMoreArticles}
@@ -360,7 +423,7 @@ const Articles: React.FC = () => {
             >
               <option value="">All Types</option>
               <option value="company">Companies</option>
-              <option value="cryptocurrency">Cryptocurrencies</option>
+              <option value="crypto">Cryptocurrencies</option>
             </select>
           </div>
           <div>

@@ -15,6 +15,8 @@ const Dashboard: React.FC = () => {
   const [aiSummary, setAiSummary] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [matchingEntities, setMatchingEntities] = useState<any[]>([]);
+  const [selectedEntity, setSelectedEntity] = useState<any>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -91,6 +93,8 @@ const Dashboard: React.FC = () => {
     if (!searchTerm.trim()) {
       setSearchResults(null);
       setEntityDetails(null);
+      setMatchingEntities([]);
+      setSelectedEntity(null);
       setSearchQuery('');
       return;
     }
@@ -99,28 +103,46 @@ const Dashboard: React.FC = () => {
       setSearchLoading(true);
       setSearchQuery(searchTerm);
       
-      const matchedEntity = topEntities.find(entity => 
+      // Find all matching entities (not just the first one)
+      const matches = topEntities.filter(entity => 
         entity.entity_name.toLowerCase().includes(searchTerm.toLowerCase())
       );
       
-      let entityType = 'company';
-      let entityName = searchTerm;
-      
-      if (matchedEntity) {
-        entityType = matchedEntity.entity_type;
-        entityName = matchedEntity.entity_name;
+      if (matches.length > 1) {
+        // Multiple matches found - show selection list
+        setMatchingEntities(matches);
+        setSearchResults(null);
+        setEntityDetails(null);
+        setSelectedEntity(null);
+      } else if (matches.length === 1) {
+        // Single match found - load details directly
+        const entity = matches[0];
+        setMatchingEntities([]);
+        setSelectedEntity(entity);
+        await loadEntityDetails(entity.entity_name, entity.entity_type);
+      } else {
+        // No exact matches - try fuzzy search with both entity types
+        setMatchingEntities([]);
+        setSelectedEntity({ name: searchTerm, type: 'company' }); // Default to company
+        await loadEntityDetails(searchTerm, 'company');
       }
-
-      await loadEntityDetails(entityName, entityType);
       
     } catch (error) {
       console.error('Error searching entity:', error);
       setSearchResults({ error: 'Search failed. Please try again.' });
       setEntityDetails(null);
+      setMatchingEntities([]);
+      setSelectedEntity(null);
     } finally {
       setSearchLoading(false);
       setShowSuggestions(false);
     }
+  };
+
+  const handleEntitySelect = async (entity: any) => {
+    setSelectedEntity(entity);
+    setMatchingEntities([]);
+    await loadEntityDetails(entity.entity_name, entity.entity_type);
   };
 
   const loadEntityDetails = async (entityName: string, entityType: string) => {
@@ -199,6 +221,8 @@ const Dashboard: React.FC = () => {
     setSearchQuery('');
     setSearchResults(null);
     setEntityDetails(null);
+    setMatchingEntities([]);
+    setSelectedEntity(null);
     setShowSuggestions(false);
   };
 
@@ -238,7 +262,7 @@ const Dashboard: React.FC = () => {
   const filterButtons = [
     { id: 'all', label: 'All', icon: BarChart3 },
     { id: 'company', label: 'Companies', icon: Building2 },
-    { id: 'cryptocurrency', label: 'Crypto', icon: Bitcoin },
+    { id: 'crypto', label: 'Crypto', icon: Bitcoin },
   ];
 
   const sentimentButtons = [
@@ -274,7 +298,7 @@ const Dashboard: React.FC = () => {
     return entityType === 'company' ? Building2 : Bitcoin;
   };
 
-  const displayEntities = searchResults ? [] : topEntities;
+  const displayEntities = (searchResults || matchingEntities.length > 0 || selectedEntity) ? [] : topEntities;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -302,29 +326,6 @@ const Dashboard: React.FC = () => {
             <p className="text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto px-4">
               Analyze sentiment trends and market movements in real-time with AI-powered insights
             </p>
-          </div>
-        </motion.div>
-
-        {/* AI Summary Section */}
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="bg-news-gradient rounded-2xl shadow-glow p-4 sm:p-6 mb-6 sm:mb-8 text-white relative overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-600/90 via-indigo-600/90 to-purple-600/90"></div>
-          <div className="relative z-10">
-            <div className="flex items-center mb-4">
-              <div className="p-2 sm:p-3 bg-white/20 rounded-xl mr-3 sm:mr-4 backdrop-blur-sm">
-                <Brain className="h-5 w-5 sm:h-6 sm:w-6" />
-              </div>
-              <h2 className="text-xl sm:text-2xl font-bold">AI Market Intelligence</h2>
-            </div>
-            <div className="bg-white/10 rounded-xl p-3 sm:p-4 backdrop-blur-sm border border-white/20">
-              <p className="text-white/95 leading-relaxed text-sm sm:text-base">
-                {aiSummary}
-              </p>
-            </div>
           </div>
         </motion.div>
 
@@ -581,7 +582,6 @@ const Dashboard: React.FC = () => {
               transition={{ duration: 0.6, delay: 0.7 }}
             >
               {searchQuery ? (
-                // Enhanced Search Results Section
                 <div>
                   <div className="flex items-center justify-between mb-4 sm:mb-6">
                     <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
@@ -592,9 +592,50 @@ const Dashboard: React.FC = () => {
                     )}
                   </div>
                   
-                  {searchLoading || detailsLoading ? (
-                    <LoadingSpinner size="lg" text="Searching for comprehensive entity data..." className="py-12" />
-                  ) : entityDetails?.error ? (
+                  {searchLoading ? (
+                    <LoadingSpinner size="lg" text="Searching for entities..." className="py-12" />
+                  ) : matchingEntities.length > 1 ? (
+                    // Multiple matches found - show selection list
+                    <div>
+                      <div className="mb-4">
+                        <p className="text-slate-600">
+                          Found {matchingEntities.length} entities matching "{searchQuery}". Select one to view details:
+                        </p>
+                      </div>
+                      <ResponsiveGrid cols={{ sm: 1, md: 2 }} gap={4}>
+                        {matchingEntities.map((entity, index) => {
+                          const EntityIcon = getEntityIcon(entity.entity_type);
+                          return (
+                            <motion.button
+                              key={`${entity.entity_name}-${entity.entity_type}`}
+                              initial={{ y: 20, opacity: 0 }}
+                              animate={{ y: 0, opacity: 1 }}
+                              transition={{ duration: 0.6, delay: index * 0.1 }}
+                              onClick={() => handleEntitySelect(entity)}
+                              className="p-4 sm:p-6 bg-card-gradient rounded-xl shadow-card hover:shadow-card-hover transition-all duration-300 border border-white/50 text-left group"
+                            >
+                              <div className="flex items-center space-x-3 sm:space-x-4">
+                                <div className={`p-3 bg-gradient-to-br from-${entity.entity_type === 'company' ? 'blue' : 'amber'}-100 to-${entity.entity_type === 'company' ? 'blue' : 'amber'}-200 rounded-xl shadow-sm group-hover:shadow-md transition-all duration-300`}>
+                                  <EntityIcon className={`h-6 w-6 text-${entity.entity_type === 'company' ? 'blue' : 'amber'}-600`} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="text-lg font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent group-hover:from-blue-600 group-hover:to-indigo-600 transition-all duration-300">
+                                    {entity.entity_name}
+                                  </h3>
+                                  <p className="text-sm text-slate-500 capitalize font-medium">
+                                    {entity.entity_type} • {entity.sentiment_count} mentions
+                                  </p>
+                                </div>
+                                <div className="flex items-center text-blue-600 group-hover:translate-x-1 transition-transform duration-200">
+                                  <ArrowRight className="h-5 w-5" />
+                                </div>
+                              </div>
+                            </motion.button>
+                          );
+                        })}
+                      </ResponsiveGrid>
+                    </div>
+                  ) : selectedEntity && entityDetails?.error ? (
                     <EmptyState
                       icon={Search}
                       title="No data found"
@@ -608,7 +649,8 @@ const Dashboard: React.FC = () => {
                         </button>
                       }
                     />
-                  ) : entityDetails ? (
+                  ) : selectedEntity && entityDetails ? (
+                    // Single entity selected - show detailed view
                     <div className="space-y-6 sm:space-y-8">
                       {/* Entity Overview Card */}
                       <ResponsiveCard className="p-4 sm:p-6">
@@ -752,6 +794,8 @@ const Dashboard: React.FC = () => {
                         );
                       })}
                     </div>
+                  ) : detailsLoading ? (
+                    <LoadingSpinner size="lg" text="Loading entity details..." className="py-12" />
                   ) : null}
                 </div>
               ) : (
@@ -827,7 +871,7 @@ const Dashboard: React.FC = () => {
                       {loading ? (
                         <div className="h-4 sm:h-5 w-6 sm:w-8 bg-slate-200 rounded animate-pulse"></div>
                       ) : (
-                        topEntities.filter(e => e.entity_type === 'cryptocurrency').length
+                        topEntities.filter(e => e.entity_type === 'crypto').length
                       )}
                     </span>
                   </div>

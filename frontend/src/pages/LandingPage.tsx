@@ -57,7 +57,7 @@ const LandingPage: React.FC = () => {
       publication_date: "2024-01-14",
       cleaned_text: "Bitcoin and other cryptocurrencies experienced significant volatility following regulatory announcements...",
       sentiments: [
-        { entity_name: "Bitcoin", entity_type: "cryptocurrency", financial_sentiment: "negative", overall_sentiment: "neutral" }
+        { entity_name: "Bitcoin", entity_type: "crypto", financial_sentiment: "negative", overall_sentiment: "neutral" }
       ]
     },
     {

@@ -8,8 +8,7 @@ from typing import List, Dict, Any
 def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[Any], stop_event: threading.Event) -> Dict[str, int]:
     """
     Executes the scraping part of the data pipeline. It now accepts a list
-    of scraper modules to run, a stop event for graceful termination, and
-    provides detailed logging for links found by each scraper.
+    of scraper modules to run and a stop event for graceful termination.
 
     Args:
         status_tracker: A dictionary to update the real-time status of the pipeline.
@@ -25,40 +24,35 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
         'current_task': 'Fetching article lists from sources.'
     })
     
-    total_new_links_found = 0
+    new_links_found = 0
     for i, scraper in enumerate(scraper_modules):
         if stop_event.is_set():
             print("Stop request received. Halting link scraping.")
             status_tracker['status'] = 'Stopping...'
-            return {'new_links_found': total_new_links_found, 'articles_scraped': 0}
+            return {'new_links_found': new_links_found, 'articles_scraped': 0}
         
         source_name = getattr(scraper, 'SOURCE_NAME', 'Unknown Scraper')
         print(f"\nRunning scraper for: {source_name}")
         status_tracker['current_task'] = f"Fetching links from {source_name}"
         
-        links_found_this_scraper = 0
         try:
             urls = scraper.get_article_urls()
-            if urls:
-                for url in urls:
-                    # add_link returns a value if the link is new, None otherwise
-                    if database.add_link(url=url, source=source_name):
-                        links_found_this_scraper += 1
-            
-            # --- NEW: Detailed console output for each scraper ---
-            print(f"-> Found {links_found_this_scraper} new links for {source_name}.")
-            total_new_links_found += links_found_this_scraper
-
+            if not urls: 
+                print(f"No links found for {source_name}.")
+                continue
+            for url in urls:
+                if database.add_link(url=url, source=source_name):
+                    new_links_found += 1
         except Exception as e:
             print(f"Error running scraper {source_name}: {e}")
 
         status_tracker['progress'] = i + 1
     
-    print(f"\nFinished scraping links. Found a total of {total_new_links_found} new URLs.")
+    print(f"Finished scraping links. Found {new_links_found} new URLs.")
 
     # --- Step 2: Scrape Articles ---
     if stop_event.is_set():
-        return {'new_links_found': total_new_links_found, 'articles_scraped': 0}
+        return {'new_links_found': new_links_found, 'articles_scraped': 0}
 
     links_to_scrape = database.get_unscraped_links()
     status_tracker.update({
@@ -69,12 +63,13 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
     if not links_to_scrape:
         status_tracker['current_task'] = 'No new articles to scrape.'
     else:
+        # Create a mapping from source name to scraper module for efficient lookup
         scraper_map = {getattr(s, 'SOURCE_NAME', 'Unknown'): s for s in scraper_modules}
         for i, link in enumerate(links_to_scrape):
             if stop_event.is_set():
                 print("Stop request received. Halting article scraping.")
                 status_tracker['status'] = 'Stopping...'
-                break
+                break # Exit the loop gracefully
 
             scraper_to_use = scraper_map.get(link['source'])
             if scraper_to_use:
@@ -89,7 +84,7 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
             status_tracker['progress'] = i + 1
 
     print(f"Finished scraping articles. Scraped {articles_scraped_count} new articles.")
-    return {'new_links_found': total_new_links_found, 'articles_scraped': articles_scraped_count}
+    return {'new_links_found': new_links_found, 'articles_scraped': articles_scraped_count}
 
 def run_analysis_pipeline(status_tracker: Dict[str, Any], stop_event: threading.Event, **kwargs: Any) -> Dict[str, int]:
     """
@@ -127,7 +122,7 @@ def run_analysis_pipeline(status_tracker: Dict[str, Any], stop_event: threading.
             if stop_event.is_set():
                 print("Stop request received. Halting analysis.")
                 status_tracker['status'] = 'Stopping...'
-                break
+                break # Exit the loop gracefully
 
             status_tracker['current_task'] = f"Analyzing article ID: {article['id']}"
             try:

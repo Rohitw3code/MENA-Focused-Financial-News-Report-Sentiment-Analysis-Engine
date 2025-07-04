@@ -26,7 +26,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, onFiltersChange }) =
         >
           <option value="">All Types</option>
           <option value="company">Companies</option>
-          <option value="cryptocurrency">Cryptocurrencies</option>
+          <option value="crypto">Cryptocurrencies</option>
         </select>
       </div>
 
