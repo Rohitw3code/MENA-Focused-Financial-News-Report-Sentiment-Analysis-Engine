@@ -1,8 +1,8 @@
-# 🌟 SentimentScope Frontend
+# 🌟 SentiNews Frontend
 
 <div align="center">
 
-![SentimentScope](https://img.shields.io/badge/SentimentScope-Financial%20News%20Intelligence-blue?style=for-the-badge&logo=trending-up)
+![SentiNews](https://img.shields.io/badge/SentiNews-Financial%20News%20Intelligence-blue?style=for-the-badge&logo=trending-up)
 
 **Modern React Dashboard for AI-Powered Financial Sentiment Analysis**
 
@@ -42,7 +42,7 @@
 
 ## 🌟 Overview
 
-SentimentScope Frontend is a cutting-edge React application that provides an intuitive and powerful interface for financial news sentiment analysis. Built with modern web technologies, it offers real-time insights, interactive visualizations, and a seamless user experience for tracking market sentiment across companies and cryptocurrencies.
+SentiNews Frontend is a cutting-edge React application that provides an intuitive and powerful interface for financial news sentiment analysis. Built with modern web technologies, it offers real-time insights, interactive visualizations, and a seamless user experience for tracking market sentiment across companies and cryptocurrencies.
 
 ### 🎯 Key Highlights
 
@@ -162,7 +162,7 @@ yarn --version  # v1.22.0+
 1. **Clone Repository**
    ```bash
    git clone <repository-url>
-   cd sentimentscope-frontend
+   cd SentiNews-frontend
    ```
 
 2. **Install Dependencies**
@@ -863,7 +863,7 @@ if (import.meta.env.DEV) {
 - **GitHub Issues**: Report bugs and request features
 - **Documentation**: Check the docs for detailed guides
 - **Community**: Join our Discord/Slack for support
-- **Stack Overflow**: Tag questions with `sentimentscope`
+- **Stack Overflow**: Tag questions with `SentiNews`
 
 ---
 
@@ -873,8 +873,8 @@ if (import.meta.env.DEV) {
 
 1. **Fork the Repository**
    ```bash
-   git clone https://github.com/your-username/sentimentscope-frontend.git
-   cd sentimentscope-frontend
+   git clone https://github.com/your-username/SentiNews-frontend.git
+   cd SentiNews-frontend
    ```
 
 2. **Create Feature Branch**

@@ -1,8 +1,8 @@
-# 🚀 SentimentScope Server
+# 🚀 SentiNews Server
 
 <div align="center">
 
-![SentimentScope](https://img.shields.io/badge/SentimentScope-Financial%20News%20Intelligence-blue?style=for-the-badge&logo=trending-up)
+![SentiNews](https://img.shields.io/badge/SentiNews-Financial%20News%20Intelligence-blue?style=for-the-badge&logo=trending-up)
 
 **AI-Powered Financial News Sentiment Analysis Backend**
 
@@ -38,7 +38,7 @@
 
 ## 🌟 Overview
 
-SentimentScope Server is a sophisticated backend system that powers financial news sentiment analysis using cutting-edge AI technology. It automatically scrapes financial news from multiple sources, analyzes sentiment using advanced language models, and provides comprehensive APIs for accessing insights.
+SentiNews Server is a sophisticated backend system that powers financial news sentiment analysis using cutting-edge AI technology. It automatically scrapes financial news from multiple sources, analyzes sentiment using advanced language models, and provides comprehensive APIs for accessing insights.
 
 ### 🎯 Key Capabilities
 

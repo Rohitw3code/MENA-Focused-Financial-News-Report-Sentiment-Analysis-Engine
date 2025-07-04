@@ -276,7 +276,7 @@ const LandingPage: React.FC = () => {
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
               <span className="bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent">
-                Why Choose SentimentScope?
+                Why Choose SentiNews?
               </span>
             </h2>
             <p className="text-xl text-slate-600 max-w-2xl mx-auto">

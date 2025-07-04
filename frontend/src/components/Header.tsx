@@ -33,7 +33,7 @@ const Header: React.FC = () => {
               <TrendingUp className="h-6 w-6 text-white" />
             </div>
             <span className="text-xl font-bold bg-gradient-to-r from-slate-800 via-blue-800 to-indigo-800 bg-clip-text text-transparent">
-              SentimentScope
+              SentiNews
             </span>
           </Link>
 
