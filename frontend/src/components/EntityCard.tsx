@@ -22,15 +22,18 @@ const EntityCard: React.FC<EntityCardProps> = ({ entity }) => {
 
   const loadSentimentData = async () => {
     try {
+      // Use the correct entity_type parameter
       const data = await fetchData('/articles', { 
         entity_name: entity.entity_name,
+        entity_type: entity.entity_type,
         limit: 5
       });
       
       // Calculate sentiment distribution
       const sentiments = data.reduce((acc: any, article: any) => {
         article.sentiments?.forEach((sentiment: any) => {
-          if (sentiment.entity_name.toLowerCase().includes(entity.entity_name.toLowerCase())) {
+          if (sentiment.entity_name.toLowerCase().includes(entity.entity_name.toLowerCase()) &&
+              sentiment.entity_type === entity.entity_type) {
             acc[sentiment.overall_sentiment] = (acc[sentiment.overall_sentiment] || 0) + 1;
           }
         });

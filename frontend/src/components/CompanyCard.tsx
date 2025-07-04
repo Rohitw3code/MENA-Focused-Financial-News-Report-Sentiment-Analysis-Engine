@@ -24,13 +24,18 @@ const CompanyCard: React.FC<CompanyCardProps> = ({ entityName, entityType }) => 
     try {
       setLoading(true);
       
-      // Load basic entity data
+      // Load basic entity data with correct entity_type parameter
       const [articlesData, trendData] = await Promise.all([
         fetchData('/entity_articles_by_sentiment', {
           entity_name: entityName,
           entity_type: entityType
+        }).catch((error) => {
+          console.error('Error loading entity articles:', error);
+          return null;
         }),
-        fetchData('/sentiment_over_time', { entity_name: entityName }).catch(() => ({ financial_sentiment_trend: [] }))
+        fetchData('/sentiment_over_time', { 
+          entity_name: entityName 
+        }).catch(() => ({ financial_sentiment_trend: [] }))
       ]);
 
       setEntityData(articlesData);

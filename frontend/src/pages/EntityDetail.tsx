@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, TrendingUp, TrendingDown, Minus, ExternalLink, Calendar, FileText, Brain, Loader } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, ExternalLink, Calendar, FileText, Brain, Loader, Building2, Bitcoin } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useApi } from '../contexts/ApiContext';
 
 const EntityDetail: React.FC = () => {
   const { entityName } = useParams<{ entityName: string }>();
+  const [entityData, setEntityData] = useState<any>(null);
+  const [entityType, setEntityType] = useState<string>('');
   const [sentimentTrend, setSentimentTrend] = useState<any[]>([]);
   const [articles, setArticles] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -20,18 +22,53 @@ const EntityDetail: React.FC = () => {
     }
   }, [entityName]);
 
+  const detectEntityType = (name: string): string => {
+    const cryptoKeywords = [
+      'bitcoin', 'btc', 'ethereum', 'eth', 'litecoin', 'ltc', 'ripple', 'xrp',
+      'cardano', 'ada', 'polkadot', 'dot', 'chainlink', 'link', 'stellar', 'xlm',
+      'dogecoin', 'doge', 'polygon', 'matic', 'solana', 'sol', 'avalanche', 'avax',
+      'cosmos', 'atom', 'algorand', 'algo', 'tezos', 'xtz', 'monero', 'xmr',
+      'dash', 'zcash', 'zec', 'binance coin', 'bnb', 'uniswap', 'uni',
+      'aave', 'compound', 'comp', 'maker', 'mkr', 'synthetix', 'snx',
+      'yearn.finance', 'yfi', 'sushiswap', 'sushi', 'pancakeswap', 'cake',
+      'terra', 'luna', 'fantom', 'ftm', 'near', 'harmony', 'one',
+      'elrond', 'egld', 'theta', 'vechain', 'vet', 'iota', 'miota',
+      'neo', 'waves', 'qtum', 'icon', 'icx', 'ontology', 'ont',
+      'zilliqa', 'zil', 'enjin', 'enj', 'basic attention token', 'bat',
+      'omisego', 'omg', 'loopring', 'lrc', 'kyber network', 'knc',
+      'bancor', 'bnt', 'republic protocol', 'ren', 'storj', 'civic', 'cvc',
+      'golem', 'gnt', 'augur', 'rep', 'gnosis', 'gno', 'status', 'snt',
+      'aragon', 'ant', 'district0x', 'dnt', 'numeraire', 'nmr',
+      'cryptocurrency', 'crypto', 'coin', 'token', 'defi', 'nft'
+    ];
+    
+    const lowerName = name.toLowerCase();
+    return cryptoKeywords.some(keyword => 
+      lowerName.includes(keyword) || keyword.includes(lowerName)
+    ) ? 'crypto' : 'company';
+  };
+
   const loadEntityData = async () => {
     try {
       setLoading(true);
       
+      // First, detect the entity type
+      const detectedType = detectEntityType(entityName || '');
+      setEntityType(detectedType);
+      
       // Load basic data first for fast initial render
-      const [trendData, articlesData] = await Promise.all([
-        fetchData('/sentiment_over_time', { entity_name: entityName }),
-        fetchData('/articles', { entity_name: entityName, limit: 10 })
+      const [trendData, articlesData, entityArticlesData] = await Promise.all([
+        fetchData('/sentiment_over_time', { entity_name: entityName }).catch(() => ({ financial_sentiment_trend: [] })),
+        fetchData('/articles', { entity_name: entityName, entity_type: detectedType, limit: 10 }).catch(() => []),
+        fetchData('/entity_articles_by_sentiment', { 
+          entity_name: entityName, 
+          entity_type: detectedType 
+        }).catch(() => null)
       ]);
 
       setSentimentTrend(trendData.financial_sentiment_trend || []);
-      setArticles(articlesData);
+      setArticles(Array.isArray(articlesData) ? articlesData : []);
+      setEntityData(entityArticlesData);
       setLoading(false);
 
       // Load AI summary separately after basic data is loaded
@@ -97,6 +134,14 @@ const EntityDetail: React.FC = () => {
     }
   };
 
+  const getEntityIcon = () => {
+    return entityType === 'crypto' ? Bitcoin : Building2;
+  };
+
+  const getEntityColor = () => {
+    return entityType === 'crypto' ? 'amber' : 'blue';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 py-8">
@@ -118,6 +163,9 @@ const EntityDetail: React.FC = () => {
       </div>
     );
   }
+
+  const EntityIcon = getEntityIcon();
+  const entityColor = getEntityColor();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 py-8">
@@ -142,14 +190,21 @@ const EntityDetail: React.FC = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
           </Link>
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">
-            <span className="bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent">
-              {entityName} Analysis
-            </span>
-          </h1>
-          <p className="text-lg text-slate-600">
-            Comprehensive sentiment analysis and market insights
-          </p>
+          <div className="flex items-center space-x-4 mb-4">
+            <div className={`p-3 bg-gradient-to-br from-${entityColor}-100 to-${entityColor}-200 rounded-xl shadow-sm`}>
+              <EntityIcon className={`h-8 w-8 text-${entityColor}-600`} />
+            </div>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold">
+                <span className="bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent">
+                  {entityName} Analysis
+                </span>
+              </h1>
+              <p className="text-lg text-slate-600 capitalize">
+                {entityType} • Comprehensive sentiment analysis and market insights
+              </p>
+            </div>
+          </div>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

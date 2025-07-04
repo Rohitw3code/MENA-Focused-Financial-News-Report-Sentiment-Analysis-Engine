@@ -22,7 +22,7 @@ from typing import List
 # --- Custom Module Imports ---
 import pipeline
 import database
-from scrapers import scraper_manager # NEW: For dynamic scraper management
+from scrapers import scraper_manager
 
 # --- Configuration ---
 DB_NAME = 'news_data.db'

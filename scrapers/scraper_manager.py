@@ -28,6 +28,7 @@ def discover_scrapers() -> Dict[str, Any]:
     for filename in os.listdir(scrapers_dir):
         if filename.endswith('_scraper.py') and not filename.startswith('__'):
             module_name = f"{scrapers_dir}.{filename[:-3]}"
+            print(f"Attempting to import scraper module: {module_name}")
             try:
                 module = importlib.import_module(module_name)
                 

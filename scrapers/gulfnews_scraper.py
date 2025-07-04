@@ -8,19 +8,18 @@ SOURCE_NAME = "gulfnews.com"
 # URL for the main page to start scraping links from
 BASE_URL = "https://gulfnews.com/business"
 
-def get_article_urls(url):
+def get_article_urls():
     """
-    Scrapes a given Gulf News section page to find all news article links.
-
-    Args:
-        url (str): The URL of the section page to scrape.
+    Scrapes the Gulf News business section page to find all news article links.
+    This function now uses the BASE_URL constant and takes no arguments.
 
     Returns:
         list: A list of unique, absolute URLs to the articles.
     """
-    print(f"--- Fetching article links from: {url} ---")
+    print(f"--- Fetching article links from: {BASE_URL} ---")
     try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        # Use the BASE_URL constant defined in this file
+        response = requests.get(BASE_URL, headers={'User-Agent': 'Mozilla/5.0'})
         response.raise_for_status()
         
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -122,7 +121,7 @@ def scrape_article_content(url):
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # 1. Get all article URLs from the base URL
-    all_urls = get_article_urls(BASE_URL)
+    all_urls = get_article_urls()
 
     if not all_urls:
         print("No articles found. Exiting.")

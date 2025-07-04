@@ -6,6 +6,7 @@ import { ResponsiveContainer, ResponsiveGrid, MobileDrawer, ResponsiveCard } fro
 import { SkeletonGrid, LoadingSpinner, EmptyState, InlineLoader } from '../components/LoadingStates';
 import ArticleCard from '../components/ArticleCard';
 import ArticleModal from '../components/ArticleModal';
+import { detectEntityType } from '../utils/entityDetection';
 
 const Articles: React.FC = () => {
   const [articles, setArticles] = useState<any[]>([]);
@@ -35,7 +36,13 @@ const Articles: React.FC = () => {
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
       if (searchTerm !== articleFilters.entity_name) {
-        handleArticleFilterChange({ ...articleFilters, entity_name: searchTerm });
+        // Auto-detect entity type when searching
+        const detectedType = searchTerm.trim() ? detectEntityType(searchTerm) : '';
+        handleArticleFilterChange({ 
+          ...articleFilters, 
+          entity_name: searchTerm,
+          entity_type: detectedType
+        });
       }
     }, 500);
 
@@ -193,9 +200,21 @@ const Articles: React.FC = () => {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="block w-full pl-10 sm:pl-12 pr-4 py-3 sm:py-4 text-base sm:text-lg border-2 border-slate-200 rounded-xl leading-5 bg-gradient-to-r from-white to-slate-50 placeholder-slate-500 focus:outline-none focus:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition-all duration-200"
-                  placeholder="Search by company name, cryptocurrency..."
+                  placeholder="Search by company name, cryptocurrency (e.g., Apple, Bitcoin, ETH)..."
                 />
               </div>
+              {searchTerm && (
+                <div className="mt-2 text-sm text-slate-600">
+                  <span className="font-medium">Auto-detected type:</span>{' '}
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                    detectEntityType(searchTerm) === 'crypto' 
+                      ? 'bg-amber-100 text-amber-800' 
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {detectEntityType(searchTerm)}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Filter Controls */}
