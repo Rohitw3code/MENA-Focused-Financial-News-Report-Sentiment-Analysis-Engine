@@ -1,2 +1,4 @@
 myenv
 frontend/node_modules
+frontend/dist
+frontend/build
