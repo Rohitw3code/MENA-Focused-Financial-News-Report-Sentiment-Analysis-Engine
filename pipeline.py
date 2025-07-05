@@ -23,6 +23,8 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
         'status': 'Scraping links', 'progress': 0, 'total': len(scraper_modules),
         'current_task': 'Fetching article lists from sources.'
     })
+
+    print("run scraping pipelines.................")
     
     new_links_found = 0
     for i, scraper in enumerate(scraper_modules):
@@ -50,9 +52,13 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
     
     print(f"Finished scraping links. Found {new_links_found} new URLs.")
 
+    print("===="*5)
+
     # --- Step 2: Scrape Articles ---
     if stop_event.is_set():
         return {'new_links_found': new_links_found, 'articles_scraped': 0}
+    
+    print("*"*10)
 
     links_to_scrape = database.get_unscraped_links()
     status_tracker.update({
@@ -60,6 +66,7 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
     })
     
     articles_scraped_count = 0
+    print ("links to scap ",len(links_to_scrape))
     if not links_to_scrape:
         status_tracker['current_task'] = 'No new articles to scrape.'
     else:
@@ -71,7 +78,9 @@ def run_scraping_pipeline(status_tracker: Dict[str, Any], scraper_modules: List[
                 status_tracker['status'] = 'Stopping...'
                 break # Exit the loop gracefully
 
-            scraper_to_use = scraper_map.get(link['source'])
+            print("link : ",link)
+
+            scraper_to_use = scraper_map.get(link['source_website'])
             if scraper_to_use:
                 try:
                     article_data = scraper_to_use.scrape_article_content(link['url'])
@@ -99,6 +108,8 @@ def run_analysis_pipeline(status_tracker: Dict[str, Any], stop_event: threading.
     Returns:
         A dictionary containing statistics about the analysis run.
     """
+
+    print("run analysis===================")
     try:
         analyzer = SentimentAnalyzer(**kwargs)
     except Exception as e:
@@ -111,6 +122,9 @@ def run_analysis_pipeline(status_tracker: Dict[str, Any], stop_event: threading.
     status_tracker.update({
         'status': 'Analyzing sentiment', 'progress': 0, 'total': len(articles_to_analyze)
     })
+    
+
+    print("Analysis : ",len(articles_to_analyze))
     
     sentiments_found_count = 0
     total_session_cost = 0.0

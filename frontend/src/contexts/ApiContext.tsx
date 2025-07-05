@@ -20,7 +20,7 @@ interface ApiProviderProps {
 }
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
-  const apiBaseUrl = 'https://sentinews-dcfkakepfyg5b9e9.canadacentral-01.azurewebsites.net/api'; // Update this to your API URL
+  const apiBaseUrl = 'http://127.0.0.1:5000/api'; // Update this to your API URL
 
   const fetchData = async (endpoint: string, params?: Record<string, any>) => {
     try {

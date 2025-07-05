@@ -804,7 +804,7 @@ const Dashboard: React.FC = () => {
                   <div className="flex items-center justify-between mb-4 sm:mb-6">
                     <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
                       Top {sentimentFilter === 'positive' ? 'Performing' : 'Declining'} {activeFilter === 'all' ? 'Entities' : 
-                       activeFilter === 'company' ? 'Companies' : 'Cryptocurrencies'} 
+                       activeFilter === 'company' ? 'Companies' : 'crypto'} 
                       <span className="text-slate-500 ml-2">({displayEntities.length})</span>
                     </h2>
                   </div>
