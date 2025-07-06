@@ -14,3 +14,4 @@ pytz
 Flask
 Flask-Cors
 apscheduler
+supabase
